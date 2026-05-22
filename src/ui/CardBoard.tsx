@@ -1,11 +1,13 @@
-import React, { useState, useEffect, useRef } from "react";
-import { initiateGame, findGameHint } from "../utils/game";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { initiateGame, findGameHint, hasLegalMoves, shuffleTableau } from "../utils/game";
 import CardHolder from "./CardHolder";
 import styles from "../styles/CardBoard.module.css";
 import Header from "./Header";
 import CardBoardBottom from "./CardBoardBottom";
 import { GameState } from "../types/game";
-import { showInfo, showWonPopup } from "../utils/toaster";
+import { showInfo, showWonPopup, showShufflePopup, showShuffleLimitPopup } from "../utils/toaster";
+
+const MAX_SHUFFLES = 3;
 
 const cloneGameState = (g: GameState): GameState => ({
   completed: g.completed,
@@ -22,7 +24,9 @@ const CardBoard: React.FC = () => {
   const [, setGameHistory] = useState<GameState[]>([]);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [gameKey, setGameKey] = useState<number>(0);
+  const [shuffleCount, setShuffleCount] = useState<number>(0);
   const winPopupScheduledRef = useRef(false);
+  const deadlockCheckRef = useRef(false);
 
   useEffect(() => {
     startNewGame();
@@ -44,6 +48,34 @@ const CardBoard: React.FC = () => {
     return () => window.clearTimeout(t);
   }, [game.completed]);
 
+  useEffect(() => {
+    if (game.decks.length === 0) return;
+    if (game.completed >= 8) return;
+    if (deadlockCheckRef.current) return;
+
+    const stockEmpty = !game.decks.slice(10, 15).some((d) => (d?.length ?? 0) > 0);
+    if (!stockEmpty) return;
+
+    if (hasLegalMoves(game.decks)) return;
+
+    deadlockCheckRef.current = true;
+    const remaining = MAX_SHUFFLES - shuffleCount;
+    if (remaining <= 0) {
+      showInfo("无可用移动，且洗牌次数已用完。请开始新游戏。");
+      deadlockCheckRef.current = false;
+      return;
+    }
+
+    const t = window.setTimeout(() => {
+      showShufflePopup(() => {
+        performShuffle();
+        deadlockCheckRef.current = false;
+      }, remaining);
+      deadlockCheckRef.current = false;
+    }, 300);
+    return () => window.clearTimeout(t);
+  }, [game.decks, game.completed, shuffleCount]);
+
   const startNewGame = (): void => {
     const init = initiateGame();
     const newGameState: GameState = {
@@ -55,6 +87,37 @@ const CardBoard: React.FC = () => {
     setGameHistory([]);
     setCanUndo(false);
     setGameKey((prev) => prev + 1);
+    setShuffleCount(0);
+    deadlockCheckRef.current = false;
+  };
+
+  const performShuffle = useCallback((): void => {
+    setShuffleCount((prev) => {
+      if (prev >= MAX_SHUFFLES) {
+        showShuffleLimitPopup();
+        return prev;
+      }
+      const nextCount = prev + 1;
+      setGame((g) => {
+        const shuffledDecks = shuffleTableau(g.decks);
+        return {
+          ...g,
+          decks: shuffledDecks,
+          moveCount: g.moveCount + 1,
+        };
+      });
+      setGameHistory([]);
+      setCanUndo(false);
+      return nextCount;
+    });
+  }, []);
+
+  const handleShuffle = (): void => {
+    if (shuffleCount >= MAX_SHUFFLES) {
+      showShuffleLimitPopup();
+      return;
+    }
+    performShuffle();
   };
 
   const handleUndo = (): void => {
@@ -90,7 +153,10 @@ const CardBoard: React.FC = () => {
         onNewGame={startNewGame}
         onUndo={handleUndo}
         onHint={handleHint}
+        onShuffle={handleShuffle}
         canUndo={canUndo}
+        shuffleCount={shuffleCount}
+        maxShuffles={MAX_SHUFFLES}
         sessionKey={gameKey}
       />
       <div className={styles.board}>

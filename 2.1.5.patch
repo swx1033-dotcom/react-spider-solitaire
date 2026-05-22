@@ -1,0 +1,439 @@
+diff --git a/src/styles/Header.module.css b/src/styles/Header.module.css
+index 2ec4223..471584f 100644
+--- a/src/styles/Header.module.css
++++ b/src/styles/Header.module.css
+@@ -113,6 +113,14 @@
+   background: linear-gradient(145deg, #6a8c4a, #5a7c3a);
+ }
+ 
++.shuffleBtn {
++  background: linear-gradient(145deg, #7a5a8a, #5a3a6a);
++}
++
++.shuffleBtn:hover {
++  background: linear-gradient(145deg, #8a6a9a, #6a4a7a);
++}
++
+ .disabled {
+   opacity: 0.5;
+   cursor: not-allowed;
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..47d0f38 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -1,11 +1,13 @@
+-import React, { useState, useEffect, useRef } from "react";
+-import { initiateGame, findGameHint } from "../utils/game";
++import React, { useState, useEffect, useRef, useCallback } from "react";
++import { initiateGame, findGameHint, hasLegalMoves, shuffleTableau } from "../utils/game";
+ import CardHolder from "./CardHolder";
+ import styles from "../styles/CardBoard.module.css";
+ import Header from "./Header";
+ import CardBoardBottom from "./CardBoardBottom";
+ import { GameState } from "../types/game";
+-import { showInfo, showWonPopup } from "../utils/toaster";
++import { showInfo, showWonPopup, showShufflePopup, showShuffleLimitPopup } from "../utils/toaster";
++
++const MAX_SHUFFLES = 3;
+ 
+ const cloneGameState = (g: GameState): GameState => ({
+   completed: g.completed,
+@@ -22,7 +24,9 @@ const CardBoard: React.FC = () => {
+   const [, setGameHistory] = useState<GameState[]>([]);
+   const [canUndo, setCanUndo] = useState<boolean>(false);
+   const [gameKey, setGameKey] = useState<number>(0);
++  const [shuffleCount, setShuffleCount] = useState<number>(0);
+   const winPopupScheduledRef = useRef(false);
++  const deadlockCheckRef = useRef(false);
+ 
+   useEffect(() => {
+     startNewGame();
+@@ -44,6 +48,34 @@ const CardBoard: React.FC = () => {
+     return () => window.clearTimeout(t);
+   }, [game.completed]);
+ 
++  useEffect(() => {
++    if (game.decks.length === 0) return;
++    if (game.completed >= 8) return;
++    if (deadlockCheckRef.current) return;
++
++    const stockEmpty = !game.decks.slice(10, 15).some((d) => (d?.length ?? 0) > 0);
++    if (!stockEmpty) return;
++
++    if (hasLegalMoves(game.decks)) return;
++
++    deadlockCheckRef.current = true;
++    const remaining = MAX_SHUFFLES - shuffleCount;
++    if (remaining <= 0) {
++      showInfo("无可用移动，且洗牌次数已用完。请开始新游戏。");
++      deadlockCheckRef.current = false;
++      return;
++    }
++
++    const t = window.setTimeout(() => {
++      showShufflePopup(() => {
++        performShuffle();
++        deadlockCheckRef.current = false;
++      }, remaining);
++      deadlockCheckRef.current = false;
++    }, 300);
++    return () => window.clearTimeout(t);
++  }, [game.decks, game.completed, shuffleCount]);
++
+   const startNewGame = (): void => {
+     const init = initiateGame();
+     const newGameState: GameState = {
+@@ -55,6 +87,37 @@ const CardBoard: React.FC = () => {
+     setGameHistory([]);
+     setCanUndo(false);
+     setGameKey((prev) => prev + 1);
++    setShuffleCount(0);
++    deadlockCheckRef.current = false;
++  };
++
++  const performShuffle = useCallback((): void => {
++    setShuffleCount((prev) => {
++      if (prev >= MAX_SHUFFLES) {
++        showShuffleLimitPopup();
++        return prev;
++      }
++      const nextCount = prev + 1;
++      setGame((g) => {
++        const shuffledDecks = shuffleTableau(g.decks);
++        return {
++          ...g,
++          decks: shuffledDecks,
++          moveCount: g.moveCount + 1,
++        };
++      });
++      setGameHistory([]);
++      setCanUndo(false);
++      return nextCount;
++    });
++  }, []);
++
++  const handleShuffle = (): void => {
++    if (shuffleCount >= MAX_SHUFFLES) {
++      showShuffleLimitPopup();
++      return;
++    }
++    performShuffle();
+   };
+ 
+   const handleUndo = (): void => {
+@@ -90,7 +153,10 @@ const CardBoard: React.FC = () => {
+         onNewGame={startNewGame}
+         onUndo={handleUndo}
+         onHint={handleHint}
++        onShuffle={handleShuffle}
+         canUndo={canUndo}
++        shuffleCount={shuffleCount}
++        maxShuffles={MAX_SHUFFLES}
+         sessionKey={gameKey}
+       />
+       <div className={styles.board}>
+diff --git a/src/ui/Header.tsx b/src/ui/Header.tsx
+index 4315628..eb0dceb 100644
+--- a/src/ui/Header.tsx
++++ b/src/ui/Header.tsx
+@@ -7,8 +7,10 @@ interface HeaderProps {
+   onNewGame: () => void;
+   onUndo?: () => void;
+   onHint?: () => void;
++  onShuffle?: () => void;
+   canUndo?: boolean;
+-  /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
++  shuffleCount?: number;
++  maxShuffles?: number;
+   sessionKey?: number;
+ }
+ 
+@@ -18,7 +20,10 @@ const Header: React.FC<HeaderProps> = ({
+   onNewGame,
+   onUndo,
+   onHint,
++  onShuffle,
+   canUndo = false,
++  shuffleCount = 0,
++  maxShuffles = 3,
+   sessionKey = 0,
+ }) => {
+   const [timer, setTimer] = useState<number>(0);
+@@ -82,6 +87,17 @@ const Header: React.FC<HeaderProps> = ({
+         <button type="button" className={styles.btn} onClick={() => onHint?.()}>
+           💡 Hint
+         </button>
++        <button
++          type="button"
++          className={`${styles.btn} ${styles.shuffleBtn} ${
++            shuffleCount >= maxShuffles ? styles.disabled : ""
++          }`}
++          onClick={() => onShuffle?.()}
++          disabled={shuffleCount >= maxShuffles}
++          title={`Shuffle tableau (${maxShuffles - shuffleCount} remaining)`}
++        >
++          🔀 Shuffle {shuffleCount}/{maxShuffles}
++        </button>
+       </div>
+       <div className={styles.centerSection}>
+         <div className={styles.stats}>
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..313aff6 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -138,6 +138,51 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
+   return true;
+ };
+ 
++export const hasLegalMoves = (decks: Card[][]): boolean => {
++  const stockHasCards = decks.slice(10, 15).some((d) => (d?.length ?? 0) > 0);
++  if (stockHasCards) return true;
++
++  for (let to = 0; to < 10; to++) {
++    const targetCol = decks[to] ?? [];
++    const targetTop =
++      targetCol.length === 0 ? null : targetCol[targetCol.length - 1];
++    if (targetTop?.isDown) continue;
++
++    for (let from = 0; from < 10; from++) {
++      if (from === to) continue;
++      const col = decks[from] ?? [];
++      for (let start = 0; start < col.length; start++) {
++        if (col[start].isDown) continue;
++        if (!isValidDescendingRun(col, start)) continue;
++        if (isValidMove(col[start], targetTop)) return true;
++      }
++    }
++  }
++
++  return false;
++};
++
++export const shuffleTableau = (decks: Card[][]): Card[][] => {
++  const columnLengths: number[] = [];
++  const allCards: Card[] = [];
++
++  for (let i = 0; i < 10; i++) {
++    columnLengths.push(decks[i].length);
++    allCards.push(...decks[i].map((c) => ({ ...c, isDown: false })));
++  }
++
++  const shuffled = _.shuffle(allCards);
++
++  const newDecks: Card[][] = decks.map((col) => [...col]);
++  let offset = 0;
++  for (let i = 0; i < 10; i++) {
++    newDecks[i] = shuffled.slice(offset, offset + columnLengths[i]);
++    offset += columnLengths[i];
++  }
++
++  return newDecks;
++};
++
+ export type GameHintKind = "complete" | "move" | "deal" | "stuck";
+ 
+ export type GameHint = {
+diff --git a/src/utils/toaster.ts b/src/utils/toaster.ts
+index 2299732..4c372e3 100644
+--- a/src/utils/toaster.ts
++++ b/src/utils/toaster.ts
+@@ -24,6 +24,49 @@ export const showInfo = (message: string): void => {
+   });
+ };
+ 
++export const showShufflePopup = (
++  onConfirm: () => void,
++  remainingShuffles: number,
++): void => {
++  Swal.fire({
++    title: "无可用移动",
++    html: `
++      <div style="text-align: center;">
++        <p style="color: #4a7c59; font-size: 16px; margin-bottom: 10px;">
++          当前牌桌没有任何合法移动，是否重新洗牌并保留当前进度？
++        </p>
++        <p style="color: #888; font-size: 13px;">
++          剩余洗牌次数：${remainingShuffles} / 3
++        </p>
++      </div>
++    `,
++    icon: "warning",
++    showCancelButton: true,
++    confirmButtonText: "洗牌",
++    cancelButtonText: "取消",
++    confirmButtonColor: "#2d5a27",
++    cancelButtonColor: "#6c757d",
++    showCloseButton: true,
++    allowOutsideClick: false,
++  }).then((result) => {
++    if (result.isConfirmed) {
++      onConfirm();
++    }
++  });
++};
++
++export const showShuffleLimitPopup = (): void => {
++  Swal.fire({
++    icon: "warning",
++    text: "本局洗牌次数已用完（最多3次）",
++    toast: true,
++    position: "bottom-end",
++    timer: 3000,
++    showConfirmButton: false,
++    timerProgressBar: true,
++  });
++};
++
+ export const showWonPopup = (restart: () => void): void => {
+   Swal.fire({
+     title: "🎉 Congratulations! 🎉",
+diff --git a/tests/ui/Header.test.tsx b/tests/ui/Header.test.tsx
+index 22132a9..d53dddf 100644
+--- a/tests/ui/Header.test.tsx
++++ b/tests/ui/Header.test.tsx
+@@ -11,6 +11,7 @@ vi.mock("../../src/styles/Header.module.css", () => ({
+     rightSection: "right-section-class",
+     btn: "btn-class",
+     undoBtn: "undo-btn-class",
++    shuffleBtn: "shuffle-btn-class",
+     disabled: "disabled-class",
+     stats: "stats-class",
+     statItem: "stat-item-class",
+diff --git a/tests/utils/game.test.ts b/tests/utils/game.test.ts
+index 0d076bd..fd19269 100644
+--- a/tests/utils/game.test.ts
++++ b/tests/utils/game.test.ts
+@@ -7,6 +7,8 @@ import {
+   checkCompletedSet,
+   isValidDescendingRun,
+   findGameHint,
++  hasLegalMoves,
++  shuffleTableau,
+ } from "../../src/utils/game";
+ import type { Card } from "../../src/types/game";
+ 
+@@ -388,4 +390,124 @@ describe("Game Utils", () => {
+       expect(h.kind).toBe("stuck");
+     });
+   });
++
++  describe("hasLegalMoves", () => {
++    const empty15 = (): Card[][] => Array.from({ length: 15 }, () => []);
++
++    it("returns true when stock has cards", () => {
++      const decks = empty15();
++      decks[10] = [{ rank: "A", isDown: true }];
++      expect(hasLegalMoves(decks)).toBe(true);
++    });
++
++    it("returns true when a legal column move exists", () => {
++      const decks = empty15();
++      decks[0] = [{ rank: "K", isDown: false }];
++      decks[1] = [{ rank: "Q", isDown: false }];
++      expect(hasLegalMoves(decks)).toBe(true);
++    });
++
++    it("returns true when a card can move to an empty column", () => {
++      const decks = empty15();
++      decks[0] = [{ rank: "3", isDown: false }];
++      decks[1] = [];
++      expect(hasLegalMoves(decks)).toBe(true);
++    });
++
++    it("returns false when no moves and stock is empty", () => {
++      const decks = empty15();
++      for (let i = 0; i < 10; i++) {
++        decks[i] = [{ rank: "6", isDown: false }];
++      }
++      expect(hasLegalMoves(decks)).toBe(false);
++    });
++
++    it("returns false when all cards are face-down and stock is empty", () => {
++      const decks = empty15();
++      for (let i = 0; i < 10; i++) {
++        decks[i] = [{ rank: "K", isDown: true }];
++      }
++      expect(hasLegalMoves(decks)).toBe(false);
++    });
++
++    it("returns true when a descending run can move to a target", () => {
++      const decks = empty15();
++      decks[0] = [
++        { rank: "K", isDown: false },
++        { rank: "Q", isDown: false },
++      ];
++      decks[1] = [{ rank: "K", isDown: false }];
++      expect(hasLegalMoves(decks)).toBe(true);
++    });
++  });
++
++  describe("shuffleTableau", () => {
++    it("preserves column lengths", () => {
++      const decks: Card[][] = Array.from({ length: 15 }, () => []);
++      decks[0] = [
++        { rank: "K", isDown: false },
++        { rank: "Q", isDown: true },
++        { rank: "J", isDown: false },
++      ];
++      decks[1] = [{ rank: "A", isDown: false }];
++      decks[2] = [
++        { rank: "5", isDown: false },
++        { rank: "4", isDown: false },
++      ];
++
++      const result = shuffleTableau(decks);
++
++      expect(result[0]).toHaveLength(3);
++      expect(result[1]).toHaveLength(1);
++      expect(result[2]).toHaveLength(2);
++    });
++
++    it("preserves stock piles unchanged", () => {
++      const decks: Card[][] = Array.from({ length: 15 }, () => []);
++      decks[10] = [{ rank: "A", isDown: true }];
++      decks[11] = [{ rank: "2", isDown: true }];
++
++      const result = shuffleTableau(decks);
++
++      expect(result[10]).toEqual([{ rank: "A", isDown: true }]);
++      expect(result[11]).toEqual([{ rank: "2", isDown: true }]);
++    });
++
++    it("sets all tableau cards to face-up", () => {
++      const decks: Card[][] = Array.from({ length: 15 }, () => []);
++      decks[0] = [
++        { rank: "K", isDown: true },
++        { rank: "Q", isDown: true },
++      ];
++
++      const result = shuffleTableau(decks);
++
++      for (let i = 0; i < 10; i++) {
++        result[i].forEach((card) => {
++          expect(card.isDown).toBe(false);
++        });
++      }
++    });
++
++    it("preserves the same set of cards (same ranks)", () => {
++      const decks: Card[][] = Array.from({ length: 15 }, () => []);
++      decks[0] = [
++        { rank: "K", isDown: false },
++        { rank: "Q", isDown: true },
++      ];
++      decks[1] = [{ rank: "A", isDown: false }];
++
++      const result = shuffleTableau(decks);
++
++      const originalRanks = [decks[0], decks[1]]
++        .flat()
++        .map((c) => c.rank)
++        .sort();
++      const shuffledRanks = [result[0], result[1]]
++        .flat()
++        .map((c) => c.rank)
++        .sort();
++      expect(shuffledRanks).toEqual(originalRanks);
++    });
++  });
+ });

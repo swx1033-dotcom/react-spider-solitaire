@@ -138,6 +138,51 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
   return true;
 };
 
+export const hasLegalMoves = (decks: Card[][]): boolean => {
+  const stockHasCards = decks.slice(10, 15).some((d) => (d?.length ?? 0) > 0);
+  if (stockHasCards) return true;
+
+  for (let to = 0; to < 10; to++) {
+    const targetCol = decks[to] ?? [];
+    const targetTop =
+      targetCol.length === 0 ? null : targetCol[targetCol.length - 1];
+    if (targetTop?.isDown) continue;
+
+    for (let from = 0; from < 10; from++) {
+      if (from === to) continue;
+      const col = decks[from] ?? [];
+      for (let start = 0; start < col.length; start++) {
+        if (col[start].isDown) continue;
+        if (!isValidDescendingRun(col, start)) continue;
+        if (isValidMove(col[start], targetTop)) return true;
+      }
+    }
+  }
+
+  return false;
+};
+
+export const shuffleTableau = (decks: Card[][]): Card[][] => {
+  const columnLengths: number[] = [];
+  const allCards: Card[] = [];
+
+  for (let i = 0; i < 10; i++) {
+    columnLengths.push(decks[i].length);
+    allCards.push(...decks[i].map((c) => ({ ...c, isDown: false })));
+  }
+
+  const shuffled = _.shuffle(allCards);
+
+  const newDecks: Card[][] = decks.map((col) => [...col]);
+  let offset = 0;
+  for (let i = 0; i < 10; i++) {
+    newDecks[i] = shuffled.slice(offset, offset + columnLengths[i]);
+    offset += columnLengths[i];
+  }
+
+  return newDecks;
+};
+
 export type GameHintKind = "complete" | "move" | "deal" | "stuck";
 
 export type GameHint = {

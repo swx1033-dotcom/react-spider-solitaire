@@ -7,6 +7,8 @@ import {
   checkCompletedSet,
   isValidDescendingRun,
   findGameHint,
+  hasLegalMoves,
+  shuffleTableau,
 } from "../../src/utils/game";
 import type { Card } from "../../src/types/game";
 
@@ -386,6 +388,126 @@ describe("Game Utils", () => {
       }
       const h = findGameHint(decks);
       expect(h.kind).toBe("stuck");
+    });
+  });
+
+  describe("hasLegalMoves", () => {
+    const empty15 = (): Card[][] => Array.from({ length: 15 }, () => []);
+
+    it("returns true when stock has cards", () => {
+      const decks = empty15();
+      decks[10] = [{ rank: "A", isDown: true }];
+      expect(hasLegalMoves(decks)).toBe(true);
+    });
+
+    it("returns true when a legal column move exists", () => {
+      const decks = empty15();
+      decks[0] = [{ rank: "K", isDown: false }];
+      decks[1] = [{ rank: "Q", isDown: false }];
+      expect(hasLegalMoves(decks)).toBe(true);
+    });
+
+    it("returns true when a card can move to an empty column", () => {
+      const decks = empty15();
+      decks[0] = [{ rank: "3", isDown: false }];
+      decks[1] = [];
+      expect(hasLegalMoves(decks)).toBe(true);
+    });
+
+    it("returns false when no moves and stock is empty", () => {
+      const decks = empty15();
+      for (let i = 0; i < 10; i++) {
+        decks[i] = [{ rank: "6", isDown: false }];
+      }
+      expect(hasLegalMoves(decks)).toBe(false);
+    });
+
+    it("returns false when all cards are face-down and stock is empty", () => {
+      const decks = empty15();
+      for (let i = 0; i < 10; i++) {
+        decks[i] = [{ rank: "K", isDown: true }];
+      }
+      expect(hasLegalMoves(decks)).toBe(false);
+    });
+
+    it("returns true when a descending run can move to a target", () => {
+      const decks = empty15();
+      decks[0] = [
+        { rank: "K", isDown: false },
+        { rank: "Q", isDown: false },
+      ];
+      decks[1] = [{ rank: "K", isDown: false }];
+      expect(hasLegalMoves(decks)).toBe(true);
+    });
+  });
+
+  describe("shuffleTableau", () => {
+    it("preserves column lengths", () => {
+      const decks: Card[][] = Array.from({ length: 15 }, () => []);
+      decks[0] = [
+        { rank: "K", isDown: false },
+        { rank: "Q", isDown: true },
+        { rank: "J", isDown: false },
+      ];
+      decks[1] = [{ rank: "A", isDown: false }];
+      decks[2] = [
+        { rank: "5", isDown: false },
+        { rank: "4", isDown: false },
+      ];
+
+      const result = shuffleTableau(decks);
+
+      expect(result[0]).toHaveLength(3);
+      expect(result[1]).toHaveLength(1);
+      expect(result[2]).toHaveLength(2);
+    });
+
+    it("preserves stock piles unchanged", () => {
+      const decks: Card[][] = Array.from({ length: 15 }, () => []);
+      decks[10] = [{ rank: "A", isDown: true }];
+      decks[11] = [{ rank: "2", isDown: true }];
+
+      const result = shuffleTableau(decks);
+
+      expect(result[10]).toEqual([{ rank: "A", isDown: true }]);
+      expect(result[11]).toEqual([{ rank: "2", isDown: true }]);
+    });
+
+    it("sets all tableau cards to face-up", () => {
+      const decks: Card[][] = Array.from({ length: 15 }, () => []);
+      decks[0] = [
+        { rank: "K", isDown: true },
+        { rank: "Q", isDown: true },
+      ];
+
+      const result = shuffleTableau(decks);
+
+      for (let i = 0; i < 10; i++) {
+        result[i].forEach((card) => {
+          expect(card.isDown).toBe(false);
+        });
+      }
+    });
+
+    it("preserves the same set of cards (same ranks)", () => {
+      const decks: Card[][] = Array.from({ length: 15 }, () => []);
+      decks[0] = [
+        { rank: "K", isDown: false },
+        { rank: "Q", isDown: true },
+      ];
+      decks[1] = [{ rank: "A", isDown: false }];
+
+      const result = shuffleTableau(decks);
+
+      const originalRanks = [decks[0], decks[1]]
+        .flat()
+        .map((c) => c.rank)
+        .sort();
+      const shuffledRanks = [result[0], result[1]]
+        .flat()
+        .map((c) => c.rank)
+        .sort();
+      expect(shuffledRanks).toEqual(originalRanks);
     });
   });
 });

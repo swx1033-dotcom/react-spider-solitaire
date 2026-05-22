@@ -11,6 +11,7 @@ vi.mock("../../src/styles/Header.module.css", () => ({
     rightSection: "right-section-class",
     btn: "btn-class",
     undoBtn: "undo-btn-class",
+    shuffleBtn: "shuffle-btn-class",
     disabled: "disabled-class",
     stats: "stats-class",
     statItem: "stat-item-class",
