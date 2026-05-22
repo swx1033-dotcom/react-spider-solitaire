@@ -140,13 +140,16 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
 
 export type GameHintKind = "complete" | "move" | "deal" | "stuck";
 
+export type MoveDetails = { from: number; to: number };
+
 export type GameHint = {
   kind: GameHintKind;
   text: string;
+  moveDetails?: MoveDetails;
 };
 
 /** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
-export const findGameHint = (decks: Card[][]): GameHint => {
+export const findGameHint = (decks: Card[][], excludeReverse?: MoveDetails): GameHint => {
   for (let c = 0; c < 10; c++) {
     if (checkCompletedSet(decks[c] ?? [])) {
       return {
@@ -164,6 +167,7 @@ export const findGameHint = (decks: Card[][]): GameHint => {
 
     for (let from = 0; from < 10; from++) {
       if (from === to) continue;
+      if (excludeReverse && from === excludeReverse.to && to === excludeReverse.from) continue;
       const col = decks[from] ?? [];
       for (let start = 0; start < col.length; start++) {
         if (col[start].isDown) continue;
@@ -173,6 +177,7 @@ export const findGameHint = (decks: Card[][]): GameHint => {
           return {
             kind: "move",
             text: `Try moving from column ${from + 1} to column ${to + 1}.`,
+            moveDetails: { from, to },
           };
         }
       }
@@ -190,6 +195,6 @@ export const findGameHint = (decks: Card[][]): GameHint => {
 
   return {
     kind: "stuck",
-    text: "No obvious move — try Undo or a different stack, or start a New Game.",
+    text: "No effective moves available.",
   };
 };

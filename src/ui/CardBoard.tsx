@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
-import { initiateGame, findGameHint } from "../utils/game";
+import { initiateGame, findGameHint, MoveDetails } from "../utils/game";
 import CardHolder from "./CardHolder";
 import styles from "../styles/CardBoard.module.css";
 import Header from "./Header";
@@ -22,6 +22,7 @@ const CardBoard: React.FC = () => {
   const [, setGameHistory] = useState<GameState[]>([]);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [gameKey, setGameKey] = useState<number>(0);
+  const [lastHintMove, setLastHintMove] = useState<MoveDetails | undefined>();
   const winPopupScheduledRef = useRef(false);
 
   useEffect(() => {
@@ -55,6 +56,7 @@ const CardBoard: React.FC = () => {
     setGameHistory([]);
     setCanUndo(false);
     setGameKey((prev) => prev + 1);
+    setLastHintMove(undefined);
   };
 
   const handleUndo = (): void => {
@@ -68,7 +70,11 @@ const CardBoard: React.FC = () => {
   };
 
   const handleHint = (): void => {
-    showInfo(findGameHint(game.decks).text);
+    const hint = findGameHint(game.decks, lastHintMove);
+    showInfo(hint.text);
+    if (hint.moveDetails) {
+      setLastHintMove(hint.moveDetails);
+    }
   };
 
   const updateGameWithHistory = (
@@ -78,6 +84,7 @@ const CardBoard: React.FC = () => {
       const resolved = typeof next === "function" ? next(prev) : next;
       setGameHistory((h) => [...h, cloneGameState(prev)]);
       setCanUndo(true);
+      setLastHintMove(undefined);
       return resolved;
     });
   };
