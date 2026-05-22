@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from "react";
 import styles from "../styles/Header.module.css";
 
+import { GameMode } from "../types/game";
+
 interface HeaderProps {
   completed: number;
   moveCount: number;
@@ -10,6 +12,11 @@ interface HeaderProps {
   canUndo?: boolean;
   /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
   sessionKey?: number;
+  mode?: GameMode;
+  onModeChange?: (mode: GameMode) => void;
+  onTimeUp?: () => void;
+  isGameOver?: boolean;
+  timeRef?: React.MutableRefObject<number>;
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -20,19 +27,42 @@ const Header: React.FC<HeaderProps> = ({
   onHint,
   canUndo = false,
   sessionKey = 0,
+  mode = "classic",
+  onModeChange,
+  onTimeUp,
+  isGameOver = false,
+  timeRef,
 }) => {
   const [timer, setTimer] = useState<number>(0);
+  const [countdown, setCountdown] = useState<number>(300);
   const [isRunning, setIsRunning] = useState<boolean>(true);
 
   useEffect(() => {
+    if (timeRef) {
+      timeRef.current = mode === "classic" ? timer : countdown;
+    }
+  }, [timer, countdown, mode, timeRef]);
+
+  useEffect(() => {
     let interval: number;
-    if (isRunning) {
-      interval = setInterval(() => {
-        setTimer((prev) => prev + 1);
+    if (isRunning && !isGameOver) {
+      interval = window.setInterval(() => {
+        if (mode === "classic") {
+          setTimer((prev) => prev + 1);
+        } else {
+          setCountdown((prev) => {
+            if (prev <= 1) {
+              setIsRunning(false);
+              onTimeUp?.();
+              return 0;
+            }
+            return prev - 1;
+          });
+        }
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isRunning]);
+  }, [isRunning, mode, isGameOver, onTimeUp]);
 
   useEffect(() => {
     if (completed === 8) setIsRunning(false);
@@ -40,8 +70,9 @@ const Header: React.FC<HeaderProps> = ({
 
   useEffect(() => {
     setTimer(0);
+    setCountdown(300);
     setIsRunning(true);
-  }, [sessionKey]);
+  }, [sessionKey, mode]);
 
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -57,8 +88,14 @@ const Header: React.FC<HeaderProps> = ({
 
   const handleNewGame = (): void => {
     setTimer(0);
+    setCountdown(300);
     setIsRunning(true);
     onNewGame();
+  };
+
+  const handleModeToggle = (): void => {
+    const newMode = mode === "classic" ? "time_attack" : "classic";
+    onModeChange?.(newMode);
   };
 
   const isGameCompleted = completed === 8;
@@ -86,6 +123,16 @@ const Header: React.FC<HeaderProps> = ({
       <div className={styles.centerSection}>
         <div className={styles.stats}>
           <div className={styles.statItem}>
+            <span className={styles.statLabel}>Mode:</span>
+            <button
+              type="button"
+              className={styles.modeToggleBtn}
+              onClick={handleModeToggle}
+            >
+              {mode === "classic" ? "Classic" : "Time Attack"}
+            </button>
+          </div>
+          <div className={styles.statItem}>
             <span className={styles.statLabel}>Completed:</span>
             <span
               className={`${styles.statValue} ${
@@ -101,7 +148,9 @@ const Header: React.FC<HeaderProps> = ({
           </div>
           <div className={styles.statItem}>
             <span className={styles.statLabel}>Time:</span>
-            <span className={styles.statValue}>{formatTime(timer)}</span>
+            <span className={styles.statValue}>
+              {mode === "classic" ? formatTime(timer) : formatTime(countdown)}
+            </span>
           </div>
         </div>
       </div>

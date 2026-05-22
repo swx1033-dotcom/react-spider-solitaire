@@ -26,7 +26,7 @@ const Card: React.FC<CardProps> = ({
   if (!data || !data.rank) return null;
 
   const column = game.decks[deckIndex] ?? [];
-  const canDrag = !data.isDown && isValidDescendingRun(column, index);
+  const canDrag = !data.isDown && isValidDescendingRun(column, index) && !game.isGameOver;
 
   let mouseX: number;
   let mouseY: number;

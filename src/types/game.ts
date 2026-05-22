@@ -1,3 +1,5 @@
+export type GameMode = "classic" | "time_attack";
+
 export interface Card {
   rank: string;
   isDown: boolean;
@@ -8,6 +10,8 @@ export interface GameState {
   decks: Card[][];
   completed: number;
   moveCount: number;
+  mode: GameMode;
+  isGameOver: boolean;
 }
 
 export interface GameInit {
