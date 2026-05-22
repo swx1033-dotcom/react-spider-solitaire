@@ -138,15 +138,20 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
   return true;
 };
 
-export type GameHintKind = "complete" | "move" | "deal" | "stuck";
+export type GameHintKind = "complete" | "move" | "deal" | "stuck" | "no_suggestion";
 
 export type GameHint = {
   kind: GameHintKind;
   text: string;
+  from?: number;
+  to?: number;
 };
 
 /** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
-export const findGameHint = (decks: Card[][]): GameHint => {
+export const findGameHint = (
+  decks: Card[][],
+  lastHintMove?: { from: number; to: number } | null
+): GameHint => {
   for (let c = 0; c < 10; c++) {
     if (checkCompletedSet(decks[c] ?? [])) {
       return {
@@ -155,6 +160,8 @@ export const findGameHint = (decks: Card[][]): GameHint => {
       };
     }
   }
+
+  let hasReverseMove = false;
 
   for (let to = 0; to < 10; to++) {
     const targetCol = decks[to] ?? [];
@@ -170,9 +177,19 @@ export const findGameHint = (decks: Card[][]): GameHint => {
         if (!isValidDescendingRun(col, start)) continue;
         const mover = col[start];
         if (isValidMove(mover, targetTop)) {
+          if (
+            lastHintMove &&
+            lastHintMove.from === to &&
+            lastHintMove.to === from
+          ) {
+            hasReverseMove = true;
+            continue;
+          }
           return {
             kind: "move",
             text: `Try moving from column ${from + 1} to column ${to + 1}.`,
+            from,
+            to,
           };
         }
       }
@@ -185,6 +202,13 @@ export const findGameHint = (decks: Card[][]): GameHint => {
     return {
       kind: "deal",
       text: "Deal a row from the stock.",
+    };
+  }
+
+  if (hasReverseMove) {
+    return {
+      kind: "no_suggestion",
+      text: "无有效建议",
     };
   }
 

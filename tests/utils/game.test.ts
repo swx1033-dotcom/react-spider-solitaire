@@ -387,5 +387,31 @@ describe("Game Utils", () => {
       const h = findGameHint(decks);
       expect(h.kind).toBe("stuck");
     });
+
+    it("avoids suggesting the reverse of the last hint move and returns no_suggestion if no other move exists", () => {
+      const decks = empty15();
+      decks[0] = [{ rank: "K", isDown: false }];
+      decks[1] = [{ rank: "Q", isDown: false }];
+      // Only valid move is from 1 to 0.
+      
+      // First hint suggests moving column 2 (index 1) to column 1 (index 0).
+      const h1 = findGameHint(decks);
+      expect(h1.kind).toBe("move");
+      expect(h1.from).toBe(1);
+      expect(h1.to).toBe(0);
+
+      // Now simulate the user moved the card, so the board changed.
+      // Column 0 has [K, Q], Column 1 is empty.
+      const newDecks = empty15();
+      newDecks[0] = [{ rank: "K", isDown: false }, { rank: "Q", isDown: false }];
+      newDecks[1] = [];
+
+      // Next hint with lastHintMove = { from: 1, to: 0 }.
+      // The only move now is moving Q from col 0 to col 1 (since col 1 is empty).
+      // But this is from 0 to 1, which is the reverse of { from: 1, to: 0 }.
+      const h2 = findGameHint(newDecks, { from: 1, to: 0 });
+      expect(h2.kind).toBe("no_suggestion");
+      expect(h2.text).toBe("无有效建议");
+    });
   });
 });

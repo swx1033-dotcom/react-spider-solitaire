@@ -22,6 +22,7 @@ const CardBoard: React.FC = () => {
   const [, setGameHistory] = useState<GameState[]>([]);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [gameKey, setGameKey] = useState<number>(0);
+  const [lastHintMove, setLastHintMove] = useState<{ from: number; to: number } | null>(null);
   const winPopupScheduledRef = useRef(false);
 
   useEffect(() => {
@@ -54,6 +55,7 @@ const CardBoard: React.FC = () => {
     setGame(newGameState);
     setGameHistory([]);
     setCanUndo(false);
+    setLastHintMove(null);
     setGameKey((prev) => prev + 1);
   };
 
@@ -63,12 +65,19 @@ const CardBoard: React.FC = () => {
       const previousState = prev[prev.length - 1];
       setGame(previousState);
       setCanUndo(prev.length - 1 > 0);
+      setLastHintMove(null);
       return prev.slice(0, -1);
     });
   };
 
   const handleHint = (): void => {
-    showInfo(findGameHint(game.decks).text);
+    const hint = findGameHint(game.decks, lastHintMove);
+    if (hint.kind === "move" && hint.from !== undefined && hint.to !== undefined) {
+      setLastHintMove({ from: hint.from, to: hint.to });
+    } else if (hint.kind !== "no_suggestion") {
+      setLastHintMove(null);
+    }
+    showInfo(hint.text);
   };
 
   const updateGameWithHistory = (

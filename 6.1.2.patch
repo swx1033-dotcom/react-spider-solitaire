@@ -1,0 +1,147 @@
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..764c95f 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -22,6 +22,7 @@ const CardBoard: React.FC = () => {
+   const [, setGameHistory] = useState<GameState[]>([]);
+   const [canUndo, setCanUndo] = useState<boolean>(false);
+   const [gameKey, setGameKey] = useState<number>(0);
++  const [lastHintMove, setLastHintMove] = useState<{ from: number; to: number } | null>(null);
+   const winPopupScheduledRef = useRef(false);
+ 
+   useEffect(() => {
+@@ -54,6 +55,7 @@ const CardBoard: React.FC = () => {
+     setGame(newGameState);
+     setGameHistory([]);
+     setCanUndo(false);
++    setLastHintMove(null);
+     setGameKey((prev) => prev + 1);
+   };
+ 
+@@ -63,12 +65,19 @@ const CardBoard: React.FC = () => {
+       const previousState = prev[prev.length - 1];
+       setGame(previousState);
+       setCanUndo(prev.length - 1 > 0);
++      setLastHintMove(null);
+       return prev.slice(0, -1);
+     });
+   };
+ 
+   const handleHint = (): void => {
+-    showInfo(findGameHint(game.decks).text);
++    const hint = findGameHint(game.decks, lastHintMove);
++    if (hint.kind === "move" && hint.from !== undefined && hint.to !== undefined) {
++      setLastHintMove({ from: hint.from, to: hint.to });
++    } else if (hint.kind !== "no_suggestion") {
++      setLastHintMove(null);
++    }
++    showInfo(hint.text);
+   };
+ 
+   const updateGameWithHistory = (
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..c7bcca8 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -138,15 +138,20 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
+   return true;
+ };
+ 
+-export type GameHintKind = "complete" | "move" | "deal" | "stuck";
++export type GameHintKind = "complete" | "move" | "deal" | "stuck" | "no_suggestion";
+ 
+ export type GameHint = {
+   kind: GameHintKind;
+   text: string;
++  from?: number;
++  to?: number;
+ };
+ 
+ /** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
+-export const findGameHint = (decks: Card[][]): GameHint => {
++export const findGameHint = (
++  decks: Card[][],
++  lastHintMove?: { from: number; to: number } | null
++): GameHint => {
+   for (let c = 0; c < 10; c++) {
+     if (checkCompletedSet(decks[c] ?? [])) {
+       return {
+@@ -156,6 +161,8 @@ export const findGameHint = (decks: Card[][]): GameHint => {
+     }
+   }
+ 
++  let hasReverseMove = false;
++
+   for (let to = 0; to < 10; to++) {
+     const targetCol = decks[to] ?? [];
+     const targetTop =
+@@ -170,9 +177,19 @@ export const findGameHint = (decks: Card[][]): GameHint => {
+         if (!isValidDescendingRun(col, start)) continue;
+         const mover = col[start];
+         if (isValidMove(mover, targetTop)) {
++          if (
++            lastHintMove &&
++            lastHintMove.from === to &&
++            lastHintMove.to === from
++          ) {
++            hasReverseMove = true;
++            continue;
++          }
+           return {
+             kind: "move",
+             text: `Try moving from column ${from + 1} to column ${to + 1}.`,
++            from,
++            to,
+           };
+         }
+       }
+@@ -188,6 +205,13 @@ export const findGameHint = (decks: Card[][]): GameHint => {
+     };
+   }
+ 
++  if (hasReverseMove) {
++    return {
++      kind: "no_suggestion",
++      text: "无有效建议",
++    };
++  }
++
+   return {
+     kind: "stuck",
+     text: "No obvious move — try Undo or a different stack, or start a New Game.",
+diff --git a/tests/utils/game.test.ts b/tests/utils/game.test.ts
+index 0d076bd..bec98a6 100644
+--- a/tests/utils/game.test.ts
++++ b/tests/utils/game.test.ts
+@@ -387,5 +387,31 @@ describe("Game Utils", () => {
+       const h = findGameHint(decks);
+       expect(h.kind).toBe("stuck");
+     });
++
++    it("avoids suggesting the reverse of the last hint move and returns no_suggestion if no other move exists", () => {
++      const decks = empty15();
++      decks[0] = [{ rank: "K", isDown: false }];
++      decks[1] = [{ rank: "Q", isDown: false }];
++      // Only valid move is from 1 to 0.
++      
++      // First hint suggests moving column 2 (index 1) to column 1 (index 0).
++      const h1 = findGameHint(decks);
++      expect(h1.kind).toBe("move");
++      expect(h1.from).toBe(1);
++      expect(h1.to).toBe(0);
++
++      // Now simulate the user moved the card, so the board changed.
++      // Column 0 has [K, Q], Column 1 is empty.
++      const newDecks = empty15();
++      newDecks[0] = [{ rank: "K", isDown: false }, { rank: "Q", isDown: false }];
++      newDecks[1] = [];
++
++      // Next hint with lastHintMove = { from: 1, to: 0 }.
++      // The only move now is moving Q from col 0 to col 1 (since col 1 is empty).
++      // But this is from 0 to 1, which is the reverse of { from: 1, to: 0 }.
++      const h2 = findGameHint(newDecks, { from: 1, to: 0 });
++      expect(h2.kind).toBe("no_suggestion");
++      expect(h2.text).toBe("无有效建议");
++    });
+   });
+ });
