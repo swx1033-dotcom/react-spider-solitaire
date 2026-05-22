@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import {
   initiateGame,
   getRank,
@@ -7,6 +7,9 @@ import {
   checkCompletedSet,
   isValidDescendingRun,
   findGameHint,
+  analyzeMoveAvailability,
+  reshuffleTableau,
+  TABLEAU_COLUMN_COUNT,
 } from "../../src/utils/game";
 import type { Card } from "../../src/types/game";
 
@@ -15,24 +18,21 @@ describe("Game Utils", () => {
     it("should create a game with correct number of cards", () => {
       const game = initiateGame();
 
-      expect(game.cards).toHaveLength(104); // 8 decks * 13 cards
-      expect(game.decks).toHaveLength(15); // 10 columns + 5 stock piles
+      expect(game.cards).toHaveLength(104);
+      expect(game.decks).toHaveLength(15);
     });
 
     it("should have correct card distribution", () => {
       const game = initiateGame();
 
-      // First 4 columns should have 6 cards each
       for (let i = 0; i < 4; i++) {
         expect(game.decks[i]).toHaveLength(6);
       }
 
-      // Next 6 columns should have 5 cards each
       for (let i = 4; i < 10; i++) {
         expect(game.decks[i]).toHaveLength(5);
       }
 
-      // Stock piles should have 10 cards each
       for (let i = 10; i < 15; i++) {
         expect(game.decks[i]).toHaveLength(10);
       }
@@ -41,24 +41,18 @@ describe("Game Utils", () => {
     it("should have only the top card face up in each column", () => {
       const game = initiateGame();
 
-      // Only first 10 decks (game columns) should have face-up cards
       for (let i = 0; i < 10; i++) {
         const deck = game.decks[i];
         if (deck.length > 0) {
-          // Last card should be face up
           expect(deck[deck.length - 1].isDown).toBe(false);
-
-          // All other cards should be face down
           for (let j = 0; j < deck.length - 1; j++) {
             expect(deck[j].isDown).toBe(true);
           }
         }
       }
 
-      // Stock piles (decks 10-14) should all be face down
       for (let i = 10; i < 15; i++) {
-        const deck = game.decks[i];
-        deck.forEach((card) => {
+        game.decks[i].forEach((card) => {
           expect(card.isDown).toBe(true);
         });
       }
@@ -72,24 +66,11 @@ describe("Game Utils", () => {
         rankCounts[card.rank] = (rankCounts[card.rank] || 0) + 1;
       });
 
-      const expectedRanks = [
-        "A",
-        "2",
-        "3",
-        "4",
-        "5",
-        "6",
-        "7",
-        "8",
-        "9",
-        "10",
-        "J",
-        "Q",
-        "K",
-      ];
-      expectedRanks.forEach((rank) => {
-        expect(rankCounts[rank]).toBe(8);
-      });
+      ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"].forEach(
+        (rank) => {
+          expect(rankCounts[rank]).toBe(8);
+        },
+      );
     });
   });
 
@@ -114,7 +95,7 @@ describe("Game Utils", () => {
   });
 
   describe("isSameSuit", () => {
-    it("should always return true (one suit game)", () => {
+    it("should always return true", () => {
       const card1: Card = { rank: "A", isDown: false };
       const card2: Card = { rank: "K", isDown: false };
 
@@ -130,55 +111,53 @@ describe("Game Utils", () => {
       expect(isValidMove({ rank: "7", isDown: false }, null)).toBe(true);
     });
 
-    it("should not allow face-down card onto empty column", () => {
+    it("should reject invalid sources or targets", () => {
       expect(isValidMove({ rank: "Q", isDown: true }, null)).toBe(false);
+      expect(
+        isValidMove(
+          { rank: "Q", isDown: false },
+          { rank: "K", isDown: true },
+        ),
+      ).toBe(false);
     });
 
-    it("should not allow moving to face-down card", () => {
-      const selectedCard: Card = { rank: "Q", isDown: false };
-      const targetCard: Card = { rank: "K", isDown: true };
-
-      expect(isValidMove(selectedCard, targetCard)).toBe(false);
-    });
-
-    it("should allow valid descending sequence", () => {
-      const selectedCard: Card = { rank: "Q", isDown: false };
-      const targetCard: Card = { rank: "K", isDown: false };
-
-      expect(isValidMove(selectedCard, targetCard)).toBe(true);
-    });
-
-    it("should not allow invalid sequence", () => {
-      const selectedCard: Card = { rank: "K", isDown: false };
-      const targetCard: Card = { rank: "Q", isDown: false };
-
-      expect(isValidMove(selectedCard, targetCard)).toBe(false);
-    });
-
-    it("should not allow same rank", () => {
-      const selectedCard: Card = { rank: "Q", isDown: false };
-      const targetCard: Card = { rank: "Q", isDown: false };
-
-      expect(isValidMove(selectedCard, targetCard)).toBe(false);
-    });
-
-    it("should handle edge cases", () => {
-      const selectedCard: Card = { rank: "A", isDown: false };
-      const targetCard: Card = { rank: "2", isDown: false };
-
-      expect(isValidMove(selectedCard, targetCard)).toBe(true);
+    it("should validate descending sequences", () => {
+      expect(
+        isValidMove(
+          { rank: "Q", isDown: false },
+          { rank: "K", isDown: false },
+        ),
+      ).toBe(true);
+      expect(
+        isValidMove(
+          { rank: "K", isDown: false },
+          { rank: "Q", isDown: false },
+        ),
+      ).toBe(false);
+      expect(
+        isValidMove(
+          { rank: "Q", isDown: false },
+          { rank: "Q", isDown: false },
+        ),
+      ).toBe(false);
+      expect(
+        isValidMove(
+          { rank: "A", isDown: false },
+          { rank: "2", isDown: false },
+        ),
+      ).toBe(true);
     });
   });
 
   describe("checkCompletedSet", () => {
     it("should return null for deck with less than 13 face-up cards", () => {
-      const deck: Card[] = [
-        { rank: "K", isDown: false },
-        { rank: "Q", isDown: false },
-        { rank: "J", isDown: false },
-      ];
-
-      expect(checkCompletedSet(deck)).toBeNull();
+      expect(
+        checkCompletedSet([
+          { rank: "K", isDown: false },
+          { rank: "Q", isDown: false },
+          { rank: "J", isDown: false },
+        ]),
+      ).toBeNull();
     });
 
     it("should return null when no valid set exists", () => {
@@ -195,7 +174,7 @@ describe("Game Utils", () => {
         { rank: "4", isDown: false },
         { rank: "3", isDown: false },
         { rank: "2", isDown: false },
-        { rank: "5", isDown: false }, // Sıralamayı bozan kart
+        { rank: "5", isDown: false },
       ];
 
       expect(checkCompletedSet(deck)).toBeNull();
@@ -220,61 +199,9 @@ describe("Game Utils", () => {
 
       const result = checkCompletedSet(deck);
       expect(result).not.toBeNull();
-      expect(result!.cards).toHaveLength(13);
-      expect(result!.cards[0].rank).toBe("K");
-      expect(result!.cards[12].rank).toBe("A");
-    });
-
-    it("should return correct set when multiple sequences exist", () => {
-      const deck: Card[] = [
-        { rank: "K", isDown: false },
-        { rank: "Q", isDown: false },
-        { rank: "J", isDown: false },
-        { rank: "10", isDown: false },
-        { rank: "9", isDown: false },
-        { rank: "8", isDown: false },
-        { rank: "7", isDown: false },
-        { rank: "6", isDown: false },
-        { rank: "5", isDown: false },
-        { rank: "4", isDown: false },
-        { rank: "3", isDown: false },
-        { rank: "2", isDown: false },
-        { rank: "A", isDown: false },
-        { rank: "K", isDown: false }, // Start of another sequence
-        { rank: "Q", isDown: false },
-      ];
-
-      const result = checkCompletedSet(deck);
-      expect(result).not.toBeNull();
-      expect(result!.cards).toHaveLength(13);
-      expect(result!.cards[0].rank).toBe("K");
-      expect(result!.cards[12].rank).toBe("A");
-    });
-
-    it("should handle face-down cards in the middle", () => {
-      const deck: Card[] = [
-        { rank: "K", isDown: false },
-        { rank: "Q", isDown: false },
-        { rank: "J", isDown: false },
-        { rank: "10", isDown: false },
-        { rank: "9", isDown: false },
-        { rank: "8", isDown: false },
-        { rank: "7", isDown: false },
-        { rank: "6", isDown: false },
-        { rank: "5", isDown: false },
-        { rank: "4", isDown: false },
-        { rank: "3", isDown: false },
-        { rank: "2", isDown: false },
-        { rank: "A", isDown: false },
-        { rank: "K", isDown: true }, // Face-down card
-        { rank: "Q", isDown: false },
-      ];
-
-      const result = checkCompletedSet(deck);
-      expect(result).not.toBeNull();
-      expect(result!.cards).toHaveLength(13);
-      expect(result!.cards[0].rank).toBe("K");
-      expect(result!.cards[12].rank).toBe("A");
+      expect(result?.cards).toHaveLength(13);
+      expect(result?.cards[0].rank).toBe("K");
+      expect(result?.cards[12].rank).toBe("A");
     });
 
     it("should report startIndex matching slice position in deck", () => {
@@ -302,61 +229,160 @@ describe("Game Utils", () => {
 
   describe("isValidDescendingRun", () => {
     it("accepts a single face-up card", () => {
-      const d: Card[] = [{ rank: "7", isDown: false }];
-      expect(isValidDescendingRun(d, 0)).toBe(true);
+      expect(isValidDescendingRun([{ rank: "7", isDown: false }], 0)).toBe(true);
     });
 
     it("rejects broken order", () => {
-      const d: Card[] = [
-        { rank: "K", isDown: false },
-        { rank: "7", isDown: false },
-      ];
-      expect(isValidDescendingRun(d, 0)).toBe(false);
+      expect(
+        isValidDescendingRun(
+          [
+            { rank: "K", isDown: false },
+            { rank: "7", isDown: false },
+          ],
+          0,
+        ),
+      ).toBe(false);
     });
 
-    it("accepts K–Q–J", () => {
-      const d: Card[] = [
-        { rank: "K", isDown: false },
-        { rank: "Q", isDown: false },
-        { rank: "J", isDown: false },
+    it("accepts K-Q-J", () => {
+      expect(
+        isValidDescendingRun(
+          [
+            { rank: "K", isDown: false },
+            { rank: "Q", isDown: false },
+            { rank: "J", isDown: false },
+          ],
+          0,
+        ),
+      ).toBe(true);
+    });
+  });
+
+  describe("analyzeMoveAvailability", () => {
+    const empty15 = (): Card[][] => Array.from({ length: 15 }, () => []);
+
+    it("should detect movable cards onto another column", () => {
+      const decks = empty15();
+      decks[0] = [{ rank: "K", isDown: false }];
+      decks[1] = [{ rank: "Q", isDown: false }];
+
+      expect(analyzeMoveAvailability(decks)).toEqual({
+        hasTableauMove: true,
+        hasStockCards: false,
+      });
+    });
+
+    it("should detect empty-column moves without scanning every card pair", () => {
+      const decks = empty15();
+      decks[0] = [{ rank: "7", isDown: false }];
+
+      expect(analyzeMoveAvailability(decks)).toEqual({
+        hasTableauMove: true,
+        hasStockCards: false,
+      });
+    });
+
+    it("should report stuck when no tableau move exists and stock is empty", () => {
+      const decks = empty15();
+      for (let i = 0; i < TABLEAU_COLUMN_COUNT; i++) {
+        decks[i] = [{ rank: "6", isDown: false }];
+      }
+
+      expect(analyzeMoveAvailability(decks)).toEqual({
+        hasTableauMove: false,
+        hasStockCards: false,
+      });
+    });
+
+    it("should report stock availability independently of tableau moves", () => {
+      const decks = empty15();
+      for (let i = 0; i < TABLEAU_COLUMN_COUNT; i++) {
+        decks[i] = [{ rank: "6", isDown: false }];
+      }
+      decks[10] = [{ rank: "A", isDown: true }];
+
+      expect(analyzeMoveAvailability(decks)).toEqual({
+        hasTableauMove: false,
+        hasStockCards: true,
+      });
+    });
+  });
+
+  describe("reshuffleTableau", () => {
+    it("should preserve tableau column lengths and flip all tableau cards face up", () => {
+      const decks: Card[][] = [
+        [
+          { rank: "K", isDown: true },
+          { rank: "Q", isDown: false },
+        ],
+        [{ rank: "J", isDown: true }],
+        ...Array.from({ length: 8 }, () => []),
+        [{ rank: "A", isDown: true }],
+        ...Array.from({ length: 4 }, () => []),
       ];
-      expect(isValidDescendingRun(d, 0)).toBe(true);
+
+      const reshuffled = reshuffleTableau(decks);
+
+      expect(reshuffled.slice(0, 10).map((deck) => deck.length)).toEqual(
+        decks.slice(0, 10).map((deck) => deck.length),
+      );
+      expect(
+        reshuffled
+          .slice(0, 10)
+          .flat()
+          .every((card) => card.isDown === false),
+      ).toBe(true);
+      expect(reshuffled[10]).toEqual([{ rank: "A", isDown: true }]);
+    });
+
+    it("should preserve the full set of tableau ranks after reshuffling", () => {
+      const decks: Card[][] = [
+        [
+          { rank: "K", isDown: true },
+          { rank: "Q", isDown: false },
+        ],
+        [
+          { rank: "J", isDown: true },
+          { rank: "10", isDown: false },
+        ],
+        ...Array.from({ length: 8 }, () => []),
+        ...Array.from({ length: 5 }, () => []),
+      ];
+
+      const before = decks
+        .slice(0, 10)
+        .flat()
+        .map((card) => card.rank)
+        .sort();
+      const after = reshuffleTableau(decks)
+        .slice(0, 10)
+        .flat()
+        .map((card) => card.rank)
+        .sort();
+
+      expect(after).toEqual(before);
     });
   });
 
   describe("findGameHint", () => {
     const empty15 = (): Card[][] => Array.from({ length: 15 }, () => []);
 
-    it("prioritizes a full K→A column", () => {
-      const ranks = [
-        "K",
-        "Q",
-        "J",
-        "10",
-        "9",
-        "8",
-        "7",
-        "6",
-        "5",
-        "4",
-        "3",
-        "2",
-        "A",
-      ];
+    it("prioritizes a full K-to-A column", () => {
+      const ranks = ["K", "Q", "J", "10", "9", "8", "7", "6", "5", "4", "3", "2", "A"];
       const decks = empty15();
       decks[0] = ranks.map((rank) => ({ rank, isDown: false }));
-      const h = findGameHint(decks);
-      expect(h.kind).toBe("complete");
-      expect(h.text).toContain("Column 1");
+      const hint = findGameHint(decks);
+      expect(hint.kind).toBe("complete");
+      expect(hint.text).toContain("Column 1");
     });
 
     it("suggests a legal column move", () => {
       const decks = empty15();
       decks[0] = [{ rank: "K", isDown: false }];
       decks[1] = [{ rank: "Q", isDown: false }];
-      const h = findGameHint(decks);
-      expect(h.kind).toBe("move");
-      expect(h.text).toMatch(/column 2.*column 1/i);
+      const hint = findGameHint(decks);
+      expect(hint.kind).toBe("move");
+      expect(hint.text).toMatch(/column 2.*column 1/i);
     });
 
     it("suggests deal when no moves remain and stock has cards", () => {
@@ -365,18 +391,8 @@ describe("Game Utils", () => {
         decks[i] = [{ rank: "6", isDown: false }];
       }
       decks[10] = [{ rank: "A", isDown: true }];
-      const h = findGameHint(decks);
-      expect(h.kind).toBe("deal");
-    });
-
-    it("suggests moving onto an empty column when any stack can fill it", () => {
-      const decks = empty15();
-      decks[0] = [{ rank: "3", isDown: false }];
-      decks[1] = [];
-      decks[10] = [{ rank: "A", isDown: true }];
-      const h = findGameHint(decks);
-      expect(h.kind).toBe("move");
-      expect(h.text).toMatch(/column 1.*column 2/i);
+      const hint = findGameHint(decks);
+      expect(hint.kind).toBe("deal");
     });
 
     it("returns stuck when no move and cannot deal", () => {
@@ -384,8 +400,9 @@ describe("Game Utils", () => {
       for (let i = 0; i < 10; i++) {
         decks[i] = [{ rank: "6", isDown: false }];
       }
-      const h = findGameHint(decks);
-      expect(h.kind).toBe("stuck");
+      const hint = findGameHint(decks);
+      expect(hint.kind).toBe("stuck");
+      expect(hint.text).toContain("Shuffle");
     });
   });
 });

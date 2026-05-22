@@ -60,3 +60,19 @@ export const showWonPopup = (restart: () => void): void => {
     }
   });
 };
+
+export const confirmReshuffle = async (): Promise<boolean> => {
+  const result = await Swal.fire({
+    title: "无可用移动",
+    text: "是否重新洗牌并保留当前进度？",
+    icon: "question",
+    showCancelButton: true,
+    confirmButtonText: "重新洗牌",
+    cancelButtonText: "稍后再说",
+    confirmButtonColor: "#2d5a27",
+    cancelButtonColor: "#6c757d",
+    allowOutsideClick: false,
+  });
+
+  return result.isConfirmed;
+};

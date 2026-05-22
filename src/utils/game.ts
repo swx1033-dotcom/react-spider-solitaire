@@ -1,6 +1,10 @@
 import _ from "lodash";
 import type { Card, GameInit, CardRank } from "../types/game";
 
+export const TABLEAU_COLUMN_COUNT = 10;
+export const STOCK_PILE_START = 10;
+export const MAX_RESHUFFLES = 3;
+
 const cardInfo = {
   rank: [
     "A",
@@ -24,29 +28,29 @@ export const initiateGame = (): GameInit => {
   let cards: Card[] = [],
     decks: Card[][];
 
-  cardInfo["rank"].forEach((rank) => {
+  cardInfo.rank.forEach((rank) => {
     for (let i = 1; i <= 8; i++) {
       cards.push({
-        rank: rank,
+        rank,
         isDown: true,
       });
     }
   });
 
-  let shuffledCards = _.shuffle(cards);
+  const shuffledCards = _.shuffle(cards);
   const firstPile = _.chunk(shuffledCards.slice(0, 24), 6);
   const secondPile = _.chunk(shuffledCards.slice(24, 54), 5);
   const stockCardsPile = _.chunk(shuffledCards.slice(54), 10);
   decks = [...firstPile, ...secondPile, ...stockCardsPile];
 
-  for (let i = 0; i <= 9; i++) {
+  for (let i = 0; i < TABLEAU_COLUMN_COUNT; i++) {
     if (decks[i].length > 0) {
       decks[i][decks[i].length - 1].isDown = false;
     }
   }
 
   return {
-    decks: decks,
+    decks,
     cards: shuffledCards,
   };
 };
@@ -65,9 +69,9 @@ export const getRank = (rank: string): number => {
       default:
         return 0;
     }
-  } else {
-    return parseInt(rank);
   }
+
+  return parseInt(rank);
 };
 
 export const isSameSuit = (_card1: Card, _card2: Card): boolean => {
@@ -86,7 +90,6 @@ export const isValidMove = (
   return selectedRank === targetRank - 1;
 };
 
-/** Completed K→A run in tableau; startIndex is the index within the full column array. */
 export type CompletedSetResult = { startIndex: number; cards: Card[] };
 
 export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
@@ -127,7 +130,6 @@ export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
   return null;
 };
 
-/** True if from `start` through the bottom of the column is face-up and strictly descending (single-suit Spider). */
 export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
   if (start < 0 || start >= deck.length) return false;
   if (deck[start].isDown) return false;
@@ -138,6 +140,116 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
   return true;
 };
 
+export type MoveAvailability = {
+  hasTableauMove: boolean;
+  hasStockCards: boolean;
+};
+
+const getMovableRanks = (deck: Card[]): Set<number> => {
+  const movableRanks = new Set<number>();
+  let expectedAboveRank: number | null = null;
+
+  for (let index = deck.length - 1; index >= 0; index--) {
+    const card = deck[index];
+    if (card.isDown) break;
+
+    const rank = getRank(card.rank);
+    if (expectedAboveRank !== null && rank !== expectedAboveRank + 1) {
+      break;
+    }
+
+    movableRanks.add(rank);
+    expectedAboveRank = rank;
+  }
+
+  return movableRanks;
+};
+
+export const analyzeMoveAvailability = (decks: Card[][]): MoveAvailability => {
+  const movableRanksByColumn = Array.from(
+    { length: TABLEAU_COLUMN_COUNT },
+    () => new Set<number>(),
+  );
+  const columnsByMovableRank = Array.from({ length: 14 }, () => 0);
+  const targetRanks = Array.from({ length: TABLEAU_COLUMN_COUNT }, () => 0);
+  let emptyColumns = 0;
+  let nonEmptyColumns = 0;
+
+  for (let columnIndex = 0; columnIndex < TABLEAU_COLUMN_COUNT; columnIndex++) {
+    const column = decks[columnIndex] ?? [];
+    if (column.length === 0) {
+      emptyColumns++;
+      continue;
+    }
+
+    nonEmptyColumns++;
+    const targetTop = column[column.length - 1];
+    if (!targetTop.isDown) {
+      targetRanks[columnIndex] = getRank(targetTop.rank);
+    }
+
+    const movableRanks = getMovableRanks(column);
+    movableRanksByColumn[columnIndex] = movableRanks;
+    movableRanks.forEach((rank) => {
+      columnsByMovableRank[rank] += 1;
+    });
+  }
+
+  if (emptyColumns > 0 && nonEmptyColumns > 0) {
+    return {
+      hasTableauMove: true,
+      hasStockCards: decks
+        .slice(STOCK_PILE_START)
+        .some((deck) => (deck?.length ?? 0) > 0),
+    };
+  }
+
+  for (let targetIndex = 0; targetIndex < TABLEAU_COLUMN_COUNT; targetIndex++) {
+    const neededRank = targetRanks[targetIndex] - 1;
+    if (neededRank <= 0) continue;
+
+    const sameColumnHasRank = movableRanksByColumn[targetIndex].has(neededRank)
+      ? 1
+      : 0;
+    if (columnsByMovableRank[neededRank] > sameColumnHasRank) {
+      return {
+        hasTableauMove: true,
+        hasStockCards: decks
+          .slice(STOCK_PILE_START)
+          .some((deck) => (deck?.length ?? 0) > 0),
+      };
+    }
+  }
+
+  return {
+    hasTableauMove: false,
+    hasStockCards: decks
+      .slice(STOCK_PILE_START)
+      .some((deck) => (deck?.length ?? 0) > 0),
+  };
+};
+
+export const reshuffleTableau = (decks: Card[][]): Card[][] => {
+  const nextDecks = decks.map((deck) => deck.map((card) => ({ ...card })));
+  const tableauLengths = nextDecks
+    .slice(0, TABLEAU_COLUMN_COUNT)
+    .map((deck) => deck.length);
+  const tableauCards = nextDecks
+    .slice(0, TABLEAU_COLUMN_COUNT)
+    .flat()
+    .map((card) => ({ ...card, isDown: false }));
+  const shuffledTableau = _.shuffle(tableauCards);
+
+  let cursor = 0;
+  for (let columnIndex = 0; columnIndex < TABLEAU_COLUMN_COUNT; columnIndex++) {
+    const columnLength = tableauLengths[columnIndex];
+    nextDecks[columnIndex] = shuffledTableau.slice(cursor, cursor + columnLength);
+    cursor += columnLength;
+  }
+
+  return nextDecks;
+};
+
 export type GameHintKind = "complete" | "move" | "deal" | "stuck";
 
 export type GameHint = {
@@ -145,9 +257,8 @@ export type GameHint = {
   text: string;
 };
 
-/** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
 export const findGameHint = (decks: Card[][]): GameHint => {
-  for (let c = 0; c < 10; c++) {
+  for (let c = 0; c < TABLEAU_COLUMN_COUNT; c++) {
     if (checkCompletedSet(decks[c] ?? [])) {
       return {
         kind: "complete",
@@ -156,13 +267,13 @@ export const findGameHint = (decks: Card[][]): GameHint => {
     }
   }
 
-  for (let to = 0; to < 10; to++) {
+  for (let to = 0; to < TABLEAU_COLUMN_COUNT; to++) {
     const targetCol = decks[to] ?? [];
     const targetTop =
       targetCol.length === 0 ? null : targetCol[targetCol.length - 1];
     if (targetTop?.isDown) continue;
 
-    for (let from = 0; from < 10; from++) {
+    for (let from = 0; from < TABLEAU_COLUMN_COUNT; from++) {
       if (from === to) continue;
       const col = decks[from] ?? [];
       for (let start = 0; start < col.length; start++) {
@@ -179,9 +290,9 @@ export const findGameHint = (decks: Card[][]): GameHint => {
     }
   }
 
-  const stockHasCards = decks.slice(10, 15).some((d) => (d?.length ?? 0) > 0);
+  const availability = analyzeMoveAvailability(decks);
 
-  if (stockHasCards) {
+  if (availability.hasStockCards) {
     return {
       kind: "deal",
       text: "Deal a row from the stock.",
@@ -190,6 +301,6 @@ export const findGameHint = (decks: Card[][]): GameHint => {
 
   return {
     kind: "stuck",
-    text: "No obvious move — try Undo or a different stack, or start a New Game.",
+    text: "No obvious move — try Undo, Shuffle, or start a New Game.",
   };
 };

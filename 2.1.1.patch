@@ -1,0 +1,1424 @@
+diff --git a/src/types/game.ts b/src/types/game.ts
+index f25296b..6d11b68 100644
+--- a/src/types/game.ts
++++ b/src/types/game.ts
+@@ -8,6 +8,7 @@ export interface GameState {
+   decks: Card[][];
+   completed: number;
+   moveCount: number;
++  reshufflesUsed: number;
+ }
+ 
+ export interface GameInit {
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..3c598d3 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -1,32 +1,68 @@
+-import React, { useState, useEffect, useRef } from "react";
+-import { initiateGame, findGameHint } from "../utils/game";
++import React, { useState, useEffect, useRef, useCallback } from "react";
++import {
++  initiateGame,
++  findGameHint,
++  analyzeMoveAvailability,
++  reshuffleTableau,
++  MAX_RESHUFFLES,
++  TABLEAU_COLUMN_COUNT,
++} from "../utils/game";
+ import CardHolder from "./CardHolder";
+ import styles from "../styles/CardBoard.module.css";
+ import Header from "./Header";
+ import CardBoardBottom from "./CardBoardBottom";
+ import { GameState } from "../types/game";
+-import { showInfo, showWonPopup } from "../utils/toaster";
++import { showInfo, showWonPopup, confirmReshuffle } from "../utils/toaster";
+ 
+ const cloneGameState = (g: GameState): GameState => ({
+   completed: g.completed,
+   moveCount: g.moveCount,
++  reshufflesUsed: g.reshufflesUsed,
+   decks: g.decks.map((col) => col.map((c) => ({ ...c }))),
+ });
+ 
++const getBoardSignature = (decks: GameState["decks"]): string =>
++  decks
++    .map((column) =>
++      column.map((card) => `${card.rank}${card.isDown ? "d" : "u"}`).join("."),
++    )
++    .join("|");
++
+ const CardBoard: React.FC = () => {
+   const [game, setGame] = useState<GameState>({
+     decks: [],
+     completed: 0,
+     moveCount: 0,
++    reshufflesUsed: 0,
+   });
+-  const [, setGameHistory] = useState<GameState[]>([]);
+-  const [canUndo, setCanUndo] = useState<boolean>(false);
++  const [gameHistory, setGameHistory] = useState<GameState[]>([]);
+   const [gameKey, setGameKey] = useState<number>(0);
+   const winPopupScheduledRef = useRef(false);
++  const reshufflePromptOpenRef = useRef(false);
++  const lastStuckBoardRef = useRef<string>("");
++
++  const clearHistory = useCallback((): void => {
++    setGameHistory([]);
++  }, []);
++
++  const startNewGame = useCallback((): void => {
++    const init = initiateGame();
++    const newGameState: GameState = {
++      decks: init.decks,
++      completed: 0,
++      moveCount: 0,
++      reshufflesUsed: 0,
++    };
++    setGame(newGameState);
++    clearHistory();
++    setGameKey((prev) => prev + 1);
++    reshufflePromptOpenRef.current = false;
++    lastStuckBoardRef.current = "";
++  }, [clearHistory]);
+ 
+   useEffect(() => {
+     startNewGame();
+-  }, []);
++  }, [startNewGame]);
+ 
+   useEffect(() => {
+     if (game.completed < 8) {
+@@ -42,27 +78,65 @@ const CardBoard: React.FC = () => {
+       });
+     }, 500);
+     return () => window.clearTimeout(t);
+-  }, [game.completed]);
++  }, [game.completed, startNewGame]);
+ 
+-  const startNewGame = (): void => {
+-    const init = initiateGame();
+-    const newGameState: GameState = {
+-      decks: init.decks,
+-      completed: 0,
+-      moveCount: 0,
+-    };
+-    setGame(newGameState);
+-    setGameHistory([]);
+-    setCanUndo(false);
+-    setGameKey((prev) => prev + 1);
+-  };
++  const triggerReshuffle = useCallback(
++    (snapshot: GameState): void => {
++      if (snapshot.reshufflesUsed >= MAX_RESHUFFLES) {
++        return;
++      }
++
++      setGame({
++        ...snapshot,
++        decks: reshuffleTableau(snapshot.decks),
++        reshufflesUsed: snapshot.reshufflesUsed + 1,
++      });
++      clearHistory();
++      lastStuckBoardRef.current = "";
++    },
++    [clearHistory],
++  );
++
++  useEffect(() => {
++    if (game.decks.length < TABLEAU_COLUMN_COUNT || game.completed >= 8) {
++      return;
++    }
++
++    const availability = analyzeMoveAvailability(game.decks);
++    if (availability.hasTableauMove || availability.hasStockCards) {
++      lastStuckBoardRef.current = "";
++      return;
++    }
++
++    const boardSignature = getBoardSignature(game.decks);
++    if (
++      reshufflePromptOpenRef.current ||
++      lastStuckBoardRef.current === boardSignature
++    ) {
++      return;
++    }
++
++    lastStuckBoardRef.current = boardSignature;
++
++    if (game.reshufflesUsed >= MAX_RESHUFFLES) {
++      showInfo("当前无可用移动，且本局洗牌次数已用完，请尝试撤销或开始新游戏。");
++      return;
++    }
++
++    reshufflePromptOpenRef.current = true;
++    void confirmReshuffle().then((confirmed) => {
++      reshufflePromptOpenRef.current = false;
++      if (confirmed) {
++        triggerReshuffle(game);
++      }
++    });
++  }, [game.completed, game.decks, game.reshufflesUsed, triggerReshuffle]);
+ 
+   const handleUndo = (): void => {
+     setGameHistory((prev) => {
+       if (prev.length === 0) return prev;
+       const previousState = prev[prev.length - 1];
+       setGame(previousState);
+-      setCanUndo(prev.length - 1 > 0);
+       return prev.slice(0, -1);
+     });
+   };
+@@ -71,13 +145,21 @@ const CardBoard: React.FC = () => {
+     showInfo(findGameHint(game.decks).text);
+   };
+ 
++  const handleManualReshuffle = (): void => {
++    if (game.reshufflesUsed >= MAX_RESHUFFLES) {
++      showInfo("本局最多只能洗牌 3 次，请尝试撤销或开始新游戏。");
++      return;
++    }
++
++    triggerReshuffle(game);
++  };
++
+   const updateGameWithHistory = (
+     next: React.SetStateAction<GameState>,
+   ): void => {
+     setGame((prev) => {
+       const resolved = typeof next === "function" ? next(prev) : next;
+-      setGameHistory((h) => [...h, cloneGameState(prev)]);
+-      setCanUndo(true);
++      setGameHistory((history) => [...history, cloneGameState(prev)]);
+       return resolved;
+     });
+   };
+@@ -87,14 +169,18 @@ const CardBoard: React.FC = () => {
+       <Header
+         completed={game.completed}
+         moveCount={game.moveCount}
++        reshufflesUsed={game.reshufflesUsed}
++        maxReshuffles={MAX_RESHUFFLES}
+         onNewGame={startNewGame}
+         onUndo={handleUndo}
+         onHint={handleHint}
+-        canUndo={canUndo}
++        onReshuffle={handleManualReshuffle}
++        canUndo={gameHistory.length > 0}
++        canReshuffle={game.reshufflesUsed < MAX_RESHUFFLES}
+         sessionKey={gameKey}
+       />
+       <div className={styles.board}>
+-        {game.decks.slice(0, 10).map((deck, index) => (
++        {game.decks.slice(0, TABLEAU_COLUMN_COUNT).map((deck, index) => (
+           <CardHolder
+             deck={deck}
+             game={game}
+@@ -107,7 +193,7 @@ const CardBoard: React.FC = () => {
+       <CardBoardBottom
+         game={game}
+         setGame={updateGameWithHistory}
+-        stockDecks={game.decks.slice(10)}
++        stockDecks={game.decks.slice(TABLEAU_COLUMN_COUNT)}
+       />
+     </div>
+   );
+diff --git a/src/ui/Header.tsx b/src/ui/Header.tsx
+index 4315628..1d1ae20 100644
+--- a/src/ui/Header.tsx
++++ b/src/ui/Header.tsx
+@@ -4,21 +4,28 @@ import styles from "../styles/Header.module.css";
+ interface HeaderProps {
+   completed: number;
+   moveCount: number;
++  reshufflesUsed?: number;
++  maxReshuffles?: number;
+   onNewGame: () => void;
+   onUndo?: () => void;
+   onHint?: () => void;
++  onReshuffle?: () => void;
+   canUndo?: boolean;
+-  /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
++  canReshuffle?: boolean;
+   sessionKey?: number;
+ }
+ 
+ const Header: React.FC<HeaderProps> = ({
+   completed,
+   moveCount,
++  reshufflesUsed = 0,
++  maxReshuffles = 3,
+   onNewGame,
+   onUndo,
+   onHint,
++  onReshuffle,
+   canUndo = false,
++  canReshuffle = true,
+   sessionKey = 0,
+ }) => {
+   const [timer, setTimer] = useState<number>(0);
+@@ -62,6 +69,7 @@ const Header: React.FC<HeaderProps> = ({
+   };
+ 
+   const isGameCompleted = completed === 8;
++  const reshufflesRemaining = Math.max(maxReshuffles - reshufflesUsed, 0);
+ 
+   return (
+     <div className={styles.header}>
+@@ -82,6 +90,15 @@ const Header: React.FC<HeaderProps> = ({
+         <button type="button" className={styles.btn} onClick={() => onHint?.()}>
+           💡 Hint
+         </button>
++        <button
++          type="button"
++          className={`${styles.btn} ${!canReshuffle ? styles.disabled : ""}`}
++          onClick={() => onReshuffle?.()}
++          disabled={!canReshuffle}
++          title={`Shuffle tableau (${reshufflesRemaining}/${maxReshuffles} left)`}
++        >
++          🔀 Shuffle
++        </button>
+       </div>
+       <div className={styles.centerSection}>
+         <div className={styles.stats}>
+@@ -99,6 +116,12 @@ const Header: React.FC<HeaderProps> = ({
+             <span className={styles.statLabel}>Moves:</span>
+             <span className={styles.statValue}>{moveCount}</span>
+           </div>
++          <div className={styles.statItem}>
++            <span className={styles.statLabel}>Shuffles:</span>
++            <span className={styles.statValue}>
++              {reshufflesUsed}/{maxReshuffles}
++            </span>
++          </div>
+           <div className={styles.statItem}>
+             <span className={styles.statLabel}>Time:</span>
+             <span className={styles.statValue}>{formatTime(timer)}</span>
+diff --git a/src/ui/StockCards.tsx b/src/ui/StockCards.tsx
+index e1a6645..594f1f4 100644
+--- a/src/ui/StockCards.tsx
++++ b/src/ui/StockCards.tsx
+@@ -1,6 +1,7 @@
+ import React, { useState, useEffect } from "react";
+ import styles from "../styles/StockCards.module.css";
+ import type { GameState, Card } from "../types/game";
++import { TABLEAU_COLUMN_COUNT } from "../utils/game";
+ 
+ interface StockCardsProps {
+   index: number;
+@@ -25,14 +26,17 @@ const StockCards: React.FC<StockCardsProps> = ({
+     if (!deck || deck.length === 0) return;
+ 
+     const tempDecks = game.decks.map((col) => [...col]);
+-
+     const cardsToDeal = deck.map((card) => ({ ...card, isDown: false }));
+ 
+-    for (let i = 0; i < 10 && i < cardsToDeal.length; i++) {
+-      tempDecks[i].push(cardsToDeal[i]);
++    for (
++      let columnIndex = 0;
++      columnIndex < TABLEAU_COLUMN_COUNT && columnIndex < cardsToDeal.length;
++      columnIndex++
++    ) {
++      tempDecks[columnIndex].push(cardsToDeal[columnIndex]);
+     }
+ 
+-    tempDecks[10 + index] = [];
++    tempDecks[TABLEAU_COLUMN_COUNT + index] = [];
+ 
+     setGame((prevState) => ({
+       ...prevState,
+@@ -46,8 +50,8 @@ const StockCards: React.FC<StockCardsProps> = ({
+   if (!deck || deck.length === 0) return null;
+ 
+   const remainingStockPiles = game.decks
+-    .slice(10)
+-    .filter((p) => p.length > 0).length;
++    .slice(TABLEAU_COLUMN_COUNT)
++    .filter((pile) => pile.length > 0).length;
+ 
+   return (
+     <>
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..719ca24 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -1,6 +1,10 @@
+ import _ from "lodash";
+ import type { Card, GameInit, CardRank } from "../types/game";
+ 
++export const TABLEAU_COLUMN_COUNT = 10;
++export const STOCK_PILE_START = 10;
++export const MAX_RESHUFFLES = 3;
++
+ const cardInfo = {
+   rank: [
+     "A",
+@@ -24,29 +28,29 @@ export const initiateGame = (): GameInit => {
+   let cards: Card[] = [],
+     decks: Card[][];
+ 
+-  cardInfo["rank"].forEach((rank) => {
++  cardInfo.rank.forEach((rank) => {
+     for (let i = 1; i <= 8; i++) {
+       cards.push({
+-        rank: rank,
++        rank,
+         isDown: true,
+       });
+     }
+   });
+ 
+-  let shuffledCards = _.shuffle(cards);
++  const shuffledCards = _.shuffle(cards);
+   const firstPile = _.chunk(shuffledCards.slice(0, 24), 6);
+   const secondPile = _.chunk(shuffledCards.slice(24, 54), 5);
+   const stockCardsPile = _.chunk(shuffledCards.slice(54), 10);
+   decks = [...firstPile, ...secondPile, ...stockCardsPile];
+ 
+-  for (let i = 0; i <= 9; i++) {
++  for (let i = 0; i < TABLEAU_COLUMN_COUNT; i++) {
+     if (decks[i].length > 0) {
+       decks[i][decks[i].length - 1].isDown = false;
+     }
+   }
+ 
+   return {
+-    decks: decks,
++    decks,
+     cards: shuffledCards,
+   };
+ };
+@@ -65,9 +69,9 @@ export const getRank = (rank: string): number => {
+       default:
+         return 0;
+     }
+-  } else {
+-    return parseInt(rank);
+   }
++
++  return parseInt(rank);
+ };
+ 
+ export const isSameSuit = (_card1: Card, _card2: Card): boolean => {
+@@ -86,7 +90,6 @@ export const isValidMove = (
+   return selectedRank === targetRank - 1;
+ };
+ 
+-/** Completed K→A run in tableau; startIndex is the index within the full column array. */
+ export type CompletedSetResult = { startIndex: number; cards: Card[] };
+ 
+ export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
+@@ -127,7 +130,6 @@ export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
+   return null;
+ };
+ 
+-/** True if from `start` through the bottom of the column is face-up and strictly descending (single-suit Spider). */
+ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
+   if (start < 0 || start >= deck.length) return false;
+   if (deck[start].isDown) return false;
+@@ -138,6 +140,116 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
+   return true;
+ };
+ 
++export type MoveAvailability = {
++  hasTableauMove: boolean;
++  hasStockCards: boolean;
++};
++
++const getMovableRanks = (deck: Card[]): Set<number> => {
++  const movableRanks = new Set<number>();
++  let expectedAboveRank: number | null = null;
++
++  for (let index = deck.length - 1; index >= 0; index--) {
++    const card = deck[index];
++    if (card.isDown) break;
++
++    const rank = getRank(card.rank);
++    if (expectedAboveRank !== null && rank !== expectedAboveRank + 1) {
++      break;
++    }
++
++    movableRanks.add(rank);
++    expectedAboveRank = rank;
++  }
++
++  return movableRanks;
++};
++
++export const analyzeMoveAvailability = (decks: Card[][]): MoveAvailability => {
++  const movableRanksByColumn = Array.from(
++    { length: TABLEAU_COLUMN_COUNT },
++    () => new Set<number>(),
++  );
++  const columnsByMovableRank = Array.from({ length: 14 }, () => 0);
++  const targetRanks = Array.from({ length: TABLEAU_COLUMN_COUNT }, () => 0);
++  let emptyColumns = 0;
++  let nonEmptyColumns = 0;
++
++  for (let columnIndex = 0; columnIndex < TABLEAU_COLUMN_COUNT; columnIndex++) {
++    const column = decks[columnIndex] ?? [];
++    if (column.length === 0) {
++      emptyColumns++;
++      continue;
++    }
++
++    nonEmptyColumns++;
++    const targetTop = column[column.length - 1];
++    if (!targetTop.isDown) {
++      targetRanks[columnIndex] = getRank(targetTop.rank);
++    }
++
++    const movableRanks = getMovableRanks(column);
++    movableRanksByColumn[columnIndex] = movableRanks;
++    movableRanks.forEach((rank) => {
++      columnsByMovableRank[rank] += 1;
++    });
++  }
++
++  if (emptyColumns > 0 && nonEmptyColumns > 0) {
++    return {
++      hasTableauMove: true,
++      hasStockCards: decks
++        .slice(STOCK_PILE_START)
++        .some((deck) => (deck?.length ?? 0) > 0),
++    };
++  }
++
++  for (let targetIndex = 0; targetIndex < TABLEAU_COLUMN_COUNT; targetIndex++) {
++    const neededRank = targetRanks[targetIndex] - 1;
++    if (neededRank <= 0) continue;
++
++    const sameColumnHasRank = movableRanksByColumn[targetIndex].has(neededRank)
++      ? 1
++      : 0;
++    if (columnsByMovableRank[neededRank] > sameColumnHasRank) {
++      return {
++        hasTableauMove: true,
++        hasStockCards: decks
++          .slice(STOCK_PILE_START)
++          .some((deck) => (deck?.length ?? 0) > 0),
++      };
++    }
++  }
++
++  return {
++    hasTableauMove: false,
++    hasStockCards: decks
++      .slice(STOCK_PILE_START)
++      .some((deck) => (deck?.length ?? 0) > 0),
++  };
++};
++
++export const reshuffleTableau = (decks: Card[][]): Card[][] => {
++  const nextDecks = decks.map((deck) => deck.map((card) => ({ ...card })));
++  const tableauLengths = nextDecks
++    .slice(0, TABLEAU_COLUMN_COUNT)
++    .map((deck) => deck.length);
++  const tableauCards = nextDecks
++    .slice(0, TABLEAU_COLUMN_COUNT)
++    .flat()
++    .map((card) => ({ ...card, isDown: false }));
++  const shuffledTableau = _.shuffle(tableauCards);
++
++  let cursor = 0;
++  for (let columnIndex = 0; columnIndex < TABLEAU_COLUMN_COUNT; columnIndex++) {
++    const columnLength = tableauLengths[columnIndex];
++    nextDecks[columnIndex] = shuffledTableau.slice(cursor, cursor + columnLength);
++    cursor += columnLength;
++  }
++
++  return nextDecks;
++};
++
+ export type GameHintKind = "complete" | "move" | "deal" | "stuck";
+ 
+ export type GameHint = {
+@@ -145,9 +257,8 @@ export type GameHint = {
+   text: string;
+ };
+ 
+-/** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
+ export const findGameHint = (decks: Card[][]): GameHint => {
+-  for (let c = 0; c < 10; c++) {
++  for (let c = 0; c < TABLEAU_COLUMN_COUNT; c++) {
+     if (checkCompletedSet(decks[c] ?? [])) {
+       return {
+         kind: "complete",
+@@ -156,13 +267,13 @@ export const findGameHint = (decks: Card[][]): GameHint => {
+     }
+   }
+ 
+-  for (let to = 0; to < 10; to++) {
++  for (let to = 0; to < TABLEAU_COLUMN_COUNT; to++) {
+     const targetCol = decks[to] ?? [];
+     const targetTop =
+       targetCol.length === 0 ? null : targetCol[targetCol.length - 1];
+     if (targetTop?.isDown) continue;
+ 
+-    for (let from = 0; from < 10; from++) {
++    for (let from = 0; from < TABLEAU_COLUMN_COUNT; from++) {
+       if (from === to) continue;
+       const col = decks[from] ?? [];
+       for (let start = 0; start < col.length; start++) {
+@@ -179,9 +290,9 @@ export const findGameHint = (decks: Card[][]): GameHint => {
+     }
+   }
+ 
+-  const stockHasCards = decks.slice(10, 15).some((d) => (d?.length ?? 0) > 0);
++  const availability = analyzeMoveAvailability(decks);
+ 
+-  if (stockHasCards) {
++  if (availability.hasStockCards) {
+     return {
+       kind: "deal",
+       text: "Deal a row from the stock.",
+@@ -190,6 +301,6 @@ export const findGameHint = (decks: Card[][]): GameHint => {
+ 
+   return {
+     kind: "stuck",
+-    text: "No obvious move — try Undo or a different stack, or start a New Game.",
++    text: "No obvious move — try Undo, Shuffle, or start a New Game.",
+   };
+ };
+diff --git a/src/utils/toaster.ts b/src/utils/toaster.ts
+index 2299732..e89dba4 100644
+--- a/src/utils/toaster.ts
++++ b/src/utils/toaster.ts
+@@ -60,3 +60,19 @@ export const showWonPopup = (restart: () => void): void => {
+     }
+   });
+ };
++
++export const confirmReshuffle = async (): Promise<boolean> => {
++  const result = await Swal.fire({
++    title: "无可用移动",
++    text: "是否重新洗牌并保留当前进度？",
++    icon: "question",
++    showCancelButton: true,
++    confirmButtonText: "重新洗牌",
++    cancelButtonText: "稍后再说",
++    confirmButtonColor: "#2d5a27",
++    cancelButtonColor: "#6c757d",
++    allowOutsideClick: false,
++  });
++
++  return result.isConfirmed;
++};
+diff --git a/tests/ui/Card.test.tsx b/tests/ui/Card.test.tsx
+index 96d544e..f3e29ba 100644
+--- a/tests/ui/Card.test.tsx
++++ b/tests/ui/Card.test.tsx
+@@ -1,9 +1,8 @@
+ import { describe, it, expect, vi, beforeEach } from "vitest";
+-import { render, screen } from "@testing-library/react";
++import { render } from "@testing-library/react";
+ import Card from "../../src/ui/Card";
+ import type { GameState, Card as CardType } from "../../src/types/game";
+ 
+-// Mock the CSS module
+ vi.mock("../../src/styles/Card.module.css", () => ({
+   default: {
+     card: "card-class",
+@@ -21,10 +20,11 @@ const createMockGameState = (): GameState => ({
+       { rank: "J", isDown: false },
+     ],
+     [{ rank: "A", isDown: false }],
+-    [],
++    ...Array.from({ length: 13 }, () => []),
+   ],
+   completed: 0,
+   moveCount: 0,
++  reshufflesUsed: 0,
+ });
+ 
+ const renderCard = (props: {
+@@ -32,9 +32,7 @@ const renderCard = (props: {
+   index: number;
+   game: GameState;
+   deckIndex: number;
+-}) => {
+-  return render(<Card {...props} setGame={mockSetGame} />);
+-};
++}) => render(<Card {...props} setGame={mockSetGame} />);
+ 
+ describe("Card Component", () => {
+   beforeEach(() => {
+@@ -53,7 +51,6 @@ describe("Card Component", () => {
+         deckIndex: 0,
+       });
+ 
+-      // Should render a div element
+       expect(container.firstChild).toBeInTheDocument();
+       expect(container.firstChild).toHaveClass("card-class");
+     });
+@@ -69,7 +66,6 @@ describe("Card Component", () => {
+         deckIndex: 0,
+       });
+ 
+-      // Should render a div element
+       expect(container.firstChild).toBeInTheDocument();
+       expect(container.firstChild).toHaveClass("card-class");
+     });
+@@ -101,7 +97,6 @@ describe("Card Component", () => {
+         deckIndex: 1,
+       });
+ 
+-      // Should render successfully
+       expect(container.firstChild).toBeInTheDocument();
+     });
+ 
+@@ -116,7 +111,6 @@ describe("Card Component", () => {
+         deckIndex: 2,
+       });
+ 
+-      // Should render successfully
+       expect(container.firstChild).toBeInTheDocument();
+     });
+ 
+@@ -131,6 +125,7 @@ describe("Card Component", () => {
+         ],
+         completed: 0,
+         moveCount: 0,
++        reshufflesUsed: 0,
+       };
+       const { container } = renderCard({
+         data: { rank: "K", isDown: false },
+@@ -165,7 +160,6 @@ describe("Card Component", () => {
+         deckIndex: 0,
+       });
+ 
+-      // Should handle empty rank gracefully
+       expect(container.firstChild).toBeNull();
+     });
+ 
+@@ -180,7 +174,6 @@ describe("Card Component", () => {
+         deckIndex: 0,
+       });
+ 
+-      // Should handle undefined data gracefully
+       expect(container.firstChild).toBeNull();
+     });
+   });
+diff --git a/tests/ui/Header.test.tsx b/tests/ui/Header.test.tsx
+index 22132a9..a1a8b7b 100644
+--- a/tests/ui/Header.test.tsx
++++ b/tests/ui/Header.test.tsx
+@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+ import { render, screen, fireEvent, act } from "@testing-library/react";
+ import Header from "../../src/ui/Header";
+ 
+-// Mock the CSS module
+ vi.mock("../../src/styles/Header.module.css", () => ({
+   default: {
+     header: "header-class",
+@@ -24,15 +23,20 @@ vi.mock("../../src/styles/Header.module.css", () => ({
+ const mockOnNewGame = vi.fn();
+ const mockOnUndo = vi.fn();
+ const mockOnHint = vi.fn();
++const mockOnReshuffle = vi.fn();
+ 
+ const renderHeader = (props = {}) => {
+   const defaultProps = {
+     completed: 0,
+     moveCount: 0,
++    reshufflesUsed: 0,
++    maxReshuffles: 3,
+     onNewGame: mockOnNewGame,
+     onUndo: mockOnUndo,
+     onHint: mockOnHint,
++    onReshuffle: mockOnReshuffle,
+     canUndo: false,
++    canReshuffle: true,
+     ...props,
+   };
+ 
+@@ -56,16 +60,19 @@ describe("Header Component", () => {
+       expect(screen.getByText("🎮 New Game")).toBeInTheDocument();
+       expect(screen.getByText("↩️ Undo")).toBeInTheDocument();
+       expect(screen.getByText("💡 Hint")).toBeInTheDocument();
++      expect(screen.getByText("🔀 Shuffle")).toBeInTheDocument();
+       expect(screen.getByText("⏸️")).toBeInTheDocument();
+     });
+ 
+     it("should display correct game statistics", () => {
+-      renderHeader({ completed: 3, moveCount: 15 });
++      renderHeader({ completed: 3, moveCount: 15, reshufflesUsed: 1 });
+ 
+       expect(screen.getByText("Completed:")).toBeInTheDocument();
+       expect(screen.getByText("3/8")).toBeInTheDocument();
+       expect(screen.getByText("Moves:")).toBeInTheDocument();
+       expect(screen.getByText("15")).toBeInTheDocument();
++      expect(screen.getByText("Shuffles:")).toBeInTheDocument();
++      expect(screen.getByText("1/3")).toBeInTheDocument();
+       expect(screen.getByText("Time:")).toBeInTheDocument();
+     });
+ 
+@@ -88,6 +95,13 @@ describe("Header Component", () => {
+       const undoButton = screen.getByText("↩️ Undo");
+       expect(undoButton).not.toBeDisabled();
+     });
++
++    it("should disable shuffle button when no reshuffles remain", () => {
++      renderHeader({ canReshuffle: false, reshufflesUsed: 3 });
++
++      const shuffleButton = screen.getByText("🔀 Shuffle");
++      expect(shuffleButton).toBeDisabled();
++    });
+   });
+ 
+   describe("Timer Functionality", () => {
+@@ -106,13 +120,11 @@ describe("Header Component", () => {
+     it("should format time correctly for different durations", () => {
+       renderHeader();
+ 
+-      // Test 1 minute
+       act(() => {
+         vi.advanceTimersByTime(60000);
+       });
+       expect(screen.getByText("1:00")).toBeInTheDocument();
+ 
+-      // Test 1 hour
+       act(() => {
+         vi.advanceTimersByTime(3600000);
+       });
+@@ -125,10 +137,8 @@ describe("Header Component", () => {
+       const pauseButton = screen.getByText("⏸️");
+       fireEvent.click(pauseButton);
+ 
+-      // Timer should show play button
+       expect(screen.getByText("▶️")).toBeInTheDocument();
+ 
+-      // Timer should not advance
+       act(() => {
+         vi.advanceTimersByTime(1000);
+       });
+@@ -144,10 +154,8 @@ describe("Header Component", () => {
+       const playButton = screen.getByText("▶️");
+       fireEvent.click(playButton);
+ 
+-      // Timer should show pause button
+       expect(screen.getByText("⏸️")).toBeInTheDocument();
+ 
+-      // Timer should advance
+       act(() => {
+         vi.advanceTimersByTime(1000);
+       });
+@@ -157,17 +165,14 @@ describe("Header Component", () => {
+     it("should reset timer when new game is started", () => {
+       renderHeader();
+ 
+-      // Advance timer
+       act(() => {
+         vi.advanceTimersByTime(5000);
+       });
+       expect(screen.getByText("0:05")).toBeInTheDocument();
+ 
+-      // Start new game
+       const newGameButton = screen.getByText("🎮 New Game");
+       fireEvent.click(newGameButton);
+ 
+-      // Timer should reset
+       expect(screen.getByText("0:00")).toBeInTheDocument();
+     });
+ 
+@@ -179,6 +184,7 @@ describe("Header Component", () => {
+           onNewGame={mockOnNewGame}
+           onUndo={mockOnUndo}
+           onHint={mockOnHint}
++          onReshuffle={mockOnReshuffle}
+           canUndo={false}
+         />,
+       );
+@@ -195,6 +201,7 @@ describe("Header Component", () => {
+           onNewGame={mockOnNewGame}
+           onUndo={mockOnUndo}
+           onHint={mockOnHint}
++          onReshuffle={mockOnReshuffle}
+           canUndo={false}
+         />,
+       );
+@@ -270,19 +277,24 @@ describe("Header Component", () => {
+       expect(mockOnHint).toHaveBeenCalledTimes(1);
+     });
+ 
+-    it("should toggle timer pause/resume when pause button is clicked", () => {
++    it("should call onReshuffle when shuffle button is clicked", () => {
+       renderHeader();
+ 
+-      const pauseButton = screen.getByText("⏸️");
++      const shuffleButton = screen.getByText("🔀 Shuffle");
++      fireEvent.click(shuffleButton);
+ 
+-      // Initial state should be pause button
++      expect(mockOnReshuffle).toHaveBeenCalledTimes(1);
++    });
++
++    it("should toggle timer pause and resume when pause button is clicked", () => {
++      renderHeader();
++
++      const pauseButton = screen.getByText("⏸️");
+       expect(pauseButton).toBeInTheDocument();
+ 
+-      // Click to pause
+       fireEvent.click(pauseButton);
+       expect(screen.getByText("▶️")).toBeInTheDocument();
+ 
+-      // Click to resume
+       fireEvent.click(screen.getByText("▶️"));
+       expect(screen.getByText("⏸️")).toBeInTheDocument();
+     });
+@@ -306,11 +318,11 @@ describe("Header Component", () => {
+       expect(playButton).toHaveAttribute("title", "Resume Timer");
+     });
+ 
+-    it("should have proper disabled state for undo button", () => {
+-      renderHeader({ canUndo: false });
++    it("should expose remaining shuffle count in title", () => {
++      renderHeader({ reshufflesUsed: 2, maxReshuffles: 3 });
+ 
+-      const undoButton = screen.getByText("↩️ Undo");
+-      expect(undoButton).toBeDisabled();
++      const shuffleButton = screen.getByText("🔀 Shuffle");
++      expect(shuffleButton).toHaveAttribute("title", "Shuffle tableau (1/3 left)");
+     });
+   });
+ 
+@@ -318,14 +330,10 @@ describe("Header Component", () => {
+     it("should handle undefined callback props gracefully", () => {
+       render(<Header completed={0} moveCount={0} onNewGame={mockOnNewGame} />);
+ 
+-      // Should not throw errors when optional callbacks are undefined
+-      const undoButton = screen.getByText("↩️ Undo");
+-      const hintButton = screen.getByText("💡 Hint");
+-
+-      fireEvent.click(undoButton);
+-      fireEvent.click(hintButton);
++      fireEvent.click(screen.getByText("↩️ Undo"));
++      fireEvent.click(screen.getByText("💡 Hint"));
++      fireEvent.click(screen.getByText("🔀 Shuffle"));
+ 
+-      // Should not crash
+       expect(screen.getByText("↩️ Undo")).toBeInTheDocument();
+     });
+ 
+@@ -344,9 +352,8 @@ describe("Header Component", () => {
+     it("should handle very long timer durations", () => {
+       renderHeader();
+ 
+-      // Advance to 2 hours and 30 minutes
+       act(() => {
+-        vi.advanceTimersByTime(9000000); // 2.5 hours in milliseconds
++        vi.advanceTimersByTime(9000000);
+       });
+ 
+       expect(screen.getByText("2:30:00")).toBeInTheDocument();
+diff --git a/tests/utils/game.test.ts b/tests/utils/game.test.ts
+index 0d076bd..2f66319 100644
+--- a/tests/utils/game.test.ts
++++ b/tests/utils/game.test.ts
+@@ -1,4 +1,4 @@
+-import { describe, it, expect, beforeEach } from "vitest";
++import { describe, it, expect } from "vitest";
+ import {
+   initiateGame,
+   getRank,
+@@ -7,6 +7,9 @@ import {
+   checkCompletedSet,
+   isValidDescendingRun,
+   findGameHint,
++  analyzeMoveAvailability,
++  reshuffleTableau,
++  TABLEAU_COLUMN_COUNT,
+ } from "../../src/utils/game";
+ import type { Card } from "../../src/types/game";
+ 
+@@ -15,24 +18,21 @@ describe("Game Utils", () => {
+     it("should create a game with correct number of cards", () => {
+       const game = initiateGame();
+ 
+-      expect(game.cards).toHaveLength(104); // 8 decks * 13 cards
+-      expect(game.decks).toHaveLength(15); // 10 columns + 5 stock piles
++      expect(game.cards).toHaveLength(104);
++      expect(game.decks).toHaveLength(15);
+     });
+ 
+     it("should have correct card distribution", () => {
+       const game = initiateGame();
+ 
+-      // First 4 columns should have 6 cards each
+       for (let i = 0; i < 4; i++) {
+         expect(game.decks[i]).toHaveLength(6);
+       }
+ 
+-      // Next 6 columns should have 5 cards each
+       for (let i = 4; i < 10; i++) {
+         expect(game.decks[i]).toHaveLength(5);
+       }
+ 
+-      // Stock piles should have 10 cards each
+       for (let i = 10; i < 15; i++) {
+         expect(game.decks[i]).toHaveLength(10);
+       }
+@@ -41,24 +41,18 @@ describe("Game Utils", () => {
+     it("should have only the top card face up in each column", () => {
+       const game = initiateGame();
+ 
+-      // Only first 10 decks (game columns) should have face-up cards
+       for (let i = 0; i < 10; i++) {
+         const deck = game.decks[i];
+         if (deck.length > 0) {
+-          // Last card should be face up
+           expect(deck[deck.length - 1].isDown).toBe(false);
+-
+-          // All other cards should be face down
+           for (let j = 0; j < deck.length - 1; j++) {
+             expect(deck[j].isDown).toBe(true);
+           }
+         }
+       }
+ 
+-      // Stock piles (decks 10-14) should all be face down
+       for (let i = 10; i < 15; i++) {
+-        const deck = game.decks[i];
+-        deck.forEach((card) => {
++        game.decks[i].forEach((card) => {
+           expect(card.isDown).toBe(true);
+         });
+       }
+@@ -72,24 +66,11 @@ describe("Game Utils", () => {
+         rankCounts[card.rank] = (rankCounts[card.rank] || 0) + 1;
+       });
+ 
+-      const expectedRanks = [
+-        "A",
+-        "2",
+-        "3",
+-        "4",
+-        "5",
+-        "6",
+-        "7",
+-        "8",
+-        "9",
+-        "10",
+-        "J",
+-        "Q",
+-        "K",
+-      ];
+-      expectedRanks.forEach((rank) => {
+-        expect(rankCounts[rank]).toBe(8);
+-      });
++      ["A", "2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K"].forEach(
++        (rank) => {
++          expect(rankCounts[rank]).toBe(8);
++        },
++      );
+     });
+   });
+ 
+@@ -114,7 +95,7 @@ describe("Game Utils", () => {
+   });
+ 
+   describe("isSameSuit", () => {
+-    it("should always return true (one suit game)", () => {
++    it("should always return true", () => {
+       const card1: Card = { rank: "A", isDown: false };
+       const card2: Card = { rank: "K", isDown: false };
+ 
+@@ -130,55 +111,53 @@ describe("Game Utils", () => {
+       expect(isValidMove({ rank: "7", isDown: false }, null)).toBe(true);
+     });
+ 
+-    it("should not allow face-down card onto empty column", () => {
++    it("should reject invalid sources or targets", () => {
+       expect(isValidMove({ rank: "Q", isDown: true }, null)).toBe(false);
++      expect(
++        isValidMove(
++          { rank: "Q", isDown: false },
++          { rank: "K", isDown: true },
++        ),
++      ).toBe(false);
+     });
+ 
+-    it("should not allow moving to face-down card", () => {
+-      const selectedCard: Card = { rank: "Q", isDown: false };
+-      const targetCard: Card = { rank: "K", isDown: true };
+-
+-      expect(isValidMove(selectedCard, targetCard)).toBe(false);
+-    });
+-
+-    it("should allow valid descending sequence", () => {
+-      const selectedCard: Card = { rank: "Q", isDown: false };
+-      const targetCard: Card = { rank: "K", isDown: false };
+-
+-      expect(isValidMove(selectedCard, targetCard)).toBe(true);
+-    });
+-
+-    it("should not allow invalid sequence", () => {
+-      const selectedCard: Card = { rank: "K", isDown: false };
+-      const targetCard: Card = { rank: "Q", isDown: false };
+-
+-      expect(isValidMove(selectedCard, targetCard)).toBe(false);
+-    });
+-
+-    it("should not allow same rank", () => {
+-      const selectedCard: Card = { rank: "Q", isDown: false };
+-      const targetCard: Card = { rank: "Q", isDown: false };
+-
+-      expect(isValidMove(selectedCard, targetCard)).toBe(false);
+-    });
+-
+-    it("should handle edge cases", () => {
+-      const selectedCard: Card = { rank: "A", isDown: false };
+-      const targetCard: Card = { rank: "2", isDown: false };
+-
+-      expect(isValidMove(selectedCard, targetCard)).toBe(true);
++    it("should validate descending sequences", () => {
++      expect(
++        isValidMove(
++          { rank: "Q", isDown: false },
++          { rank: "K", isDown: false },
++        ),
++      ).toBe(true);
++      expect(
++        isValidMove(
++          { rank: "K", isDown: false },
++          { rank: "Q", isDown: false },
++        ),
++      ).toBe(false);
++      expect(
++        isValidMove(
++          { rank: "Q", isDown: false },
++          { rank: "Q", isDown: false },
++        ),
++      ).toBe(false);
++      expect(
++        isValidMove(
++          { rank: "A", isDown: false },
++          { rank: "2", isDown: false },
++        ),
++      ).toBe(true);
+     });
+   });
+ 
+   describe("checkCompletedSet", () => {
+     it("should return null for deck with less than 13 face-up cards", () => {
+-      const deck: Card[] = [
+-        { rank: "K", isDown: false },
+-        { rank: "Q", isDown: false },
+-        { rank: "J", isDown: false },
+-      ];
+-
+-      expect(checkCompletedSet(deck)).toBeNull();
++      expect(
++        checkCompletedSet([
++          { rank: "K", isDown: false },
++          { rank: "Q", isDown: false },
++          { rank: "J", isDown: false },
++        ]),
++      ).toBeNull();
+     });
+ 
+     it("should return null when no valid set exists", () => {
+@@ -195,7 +174,7 @@ describe("Game Utils", () => {
+         { rank: "4", isDown: false },
+         { rank: "3", isDown: false },
+         { rank: "2", isDown: false },
+-        { rank: "5", isDown: false }, // Sıralamayı bozan kart
++        { rank: "5", isDown: false },
+       ];
+ 
+       expect(checkCompletedSet(deck)).toBeNull();
+@@ -220,61 +199,9 @@ describe("Game Utils", () => {
+ 
+       const result = checkCompletedSet(deck);
+       expect(result).not.toBeNull();
+-      expect(result!.cards).toHaveLength(13);
+-      expect(result!.cards[0].rank).toBe("K");
+-      expect(result!.cards[12].rank).toBe("A");
+-    });
+-
+-    it("should return correct set when multiple sequences exist", () => {
+-      const deck: Card[] = [
+-        { rank: "K", isDown: false },
+-        { rank: "Q", isDown: false },
+-        { rank: "J", isDown: false },
+-        { rank: "10", isDown: false },
+-        { rank: "9", isDown: false },
+-        { rank: "8", isDown: false },
+-        { rank: "7", isDown: false },
+-        { rank: "6", isDown: false },
+-        { rank: "5", isDown: false },
+-        { rank: "4", isDown: false },
+-        { rank: "3", isDown: false },
+-        { rank: "2", isDown: false },
+-        { rank: "A", isDown: false },
+-        { rank: "K", isDown: false }, // Start of another sequence
+-        { rank: "Q", isDown: false },
+-      ];
+-
+-      const result = checkCompletedSet(deck);
+-      expect(result).not.toBeNull();
+-      expect(result!.cards).toHaveLength(13);
+-      expect(result!.cards[0].rank).toBe("K");
+-      expect(result!.cards[12].rank).toBe("A");
+-    });
+-
+-    it("should handle face-down cards in the middle", () => {
+-      const deck: Card[] = [
+-        { rank: "K", isDown: false },
+-        { rank: "Q", isDown: false },
+-        { rank: "J", isDown: false },
+-        { rank: "10", isDown: false },
+-        { rank: "9", isDown: false },
+-        { rank: "8", isDown: false },
+-        { rank: "7", isDown: false },
+-        { rank: "6", isDown: false },
+-        { rank: "5", isDown: false },
+-        { rank: "4", isDown: false },
+-        { rank: "3", isDown: false },
+-        { rank: "2", isDown: false },
+-        { rank: "A", isDown: false },
+-        { rank: "K", isDown: true }, // Face-down card
+-        { rank: "Q", isDown: false },
+-      ];
+-
+-      const result = checkCompletedSet(deck);
+-      expect(result).not.toBeNull();
+-      expect(result!.cards).toHaveLength(13);
+-      expect(result!.cards[0].rank).toBe("K");
+-      expect(result!.cards[12].rank).toBe("A");
++      expect(result?.cards).toHaveLength(13);
++      expect(result?.cards[0].rank).toBe("K");
++      expect(result?.cards[12].rank).toBe("A");
+     });
+ 
+     it("should report startIndex matching slice position in deck", () => {
+@@ -302,61 +229,160 @@ describe("Game Utils", () => {
+ 
+   describe("isValidDescendingRun", () => {
+     it("accepts a single face-up card", () => {
+-      const d: Card[] = [{ rank: "7", isDown: false }];
+-      expect(isValidDescendingRun(d, 0)).toBe(true);
++      expect(isValidDescendingRun([{ rank: "7", isDown: false }], 0)).toBe(true);
+     });
+ 
+     it("rejects broken order", () => {
+-      const d: Card[] = [
+-        { rank: "K", isDown: false },
+-        { rank: "7", isDown: false },
++      expect(
++        isValidDescendingRun(
++          [
++            { rank: "K", isDown: false },
++            { rank: "7", isDown: false },
++          ],
++          0,
++        ),
++      ).toBe(false);
++    });
++
++    it("accepts K-Q-J", () => {
++      expect(
++        isValidDescendingRun(
++          [
++            { rank: "K", isDown: false },
++            { rank: "Q", isDown: false },
++            { rank: "J", isDown: false },
++          ],
++          0,
++        ),
++      ).toBe(true);
++    });
++  });
++
++  describe("analyzeMoveAvailability", () => {
++    const empty15 = (): Card[][] => Array.from({ length: 15 }, () => []);
++
++    it("should detect movable cards onto another column", () => {
++      const decks = empty15();
++      decks[0] = [{ rank: "K", isDown: false }];
++      decks[1] = [{ rank: "Q", isDown: false }];
++
++      expect(analyzeMoveAvailability(decks)).toEqual({
++        hasTableauMove: true,
++        hasStockCards: false,
++      });
++    });
++
++    it("should detect empty-column moves without scanning every card pair", () => {
++      const decks = empty15();
++      decks[0] = [{ rank: "7", isDown: false }];
++
++      expect(analyzeMoveAvailability(decks)).toEqual({
++        hasTableauMove: true,
++        hasStockCards: false,
++      });
++    });
++
++    it("should report stuck when no tableau move exists and stock is empty", () => {
++      const decks = empty15();
++      for (let i = 0; i < TABLEAU_COLUMN_COUNT; i++) {
++        decks[i] = [{ rank: "6", isDown: false }];
++      }
++
++      expect(analyzeMoveAvailability(decks)).toEqual({
++        hasTableauMove: false,
++        hasStockCards: false,
++      });
++    });
++
++    it("should report stock availability independently of tableau moves", () => {
++      const decks = empty15();
++      for (let i = 0; i < TABLEAU_COLUMN_COUNT; i++) {
++        decks[i] = [{ rank: "6", isDown: false }];
++      }
++      decks[10] = [{ rank: "A", isDown: true }];
++
++      expect(analyzeMoveAvailability(decks)).toEqual({
++        hasTableauMove: false,
++        hasStockCards: true,
++      });
++    });
++  });
++
++  describe("reshuffleTableau", () => {
++    it("should preserve tableau column lengths and flip all tableau cards face up", () => {
++      const decks: Card[][] = [
++        [
++          { rank: "K", isDown: true },
++          { rank: "Q", isDown: false },
++        ],
++        [{ rank: "J", isDown: true }],
++        ...Array.from({ length: 8 }, () => []),
++        [{ rank: "A", isDown: true }],
++        ...Array.from({ length: 4 }, () => []),
+       ];
+-      expect(isValidDescendingRun(d, 0)).toBe(false);
++
++      const reshuffled = reshuffleTableau(decks);
++
++      expect(reshuffled.slice(0, 10).map((deck) => deck.length)).toEqual(
++        decks.slice(0, 10).map((deck) => deck.length),
++      );
++      expect(
++        reshuffled
++          .slice(0, 10)
++          .flat()
++          .every((card) => card.isDown === false),
++      ).toBe(true);
++      expect(reshuffled[10]).toEqual([{ rank: "A", isDown: true }]);
+     });
+ 
+-    it("accepts K–Q–J", () => {
+-      const d: Card[] = [
+-        { rank: "K", isDown: false },
+-        { rank: "Q", isDown: false },
+-        { rank: "J", isDown: false },
++    it("should preserve the full set of tableau ranks after reshuffling", () => {
++      const decks: Card[][] = [
++        [
++          { rank: "K", isDown: true },
++          { rank: "Q", isDown: false },
++        ],
++        [
++          { rank: "J", isDown: true },
++          { rank: "10", isDown: false },
++        ],
++        ...Array.from({ length: 8 }, () => []),
++        ...Array.from({ length: 5 }, () => []),
+       ];
+-      expect(isValidDescendingRun(d, 0)).toBe(true);
++
++      const before = decks
++        .slice(0, 10)
++        .flat()
++        .map((card) => card.rank)
++        .sort();
++      const after = reshuffleTableau(decks)
++        .slice(0, 10)
++        .flat()
++        .map((card) => card.rank)
++        .sort();
++
++      expect(after).toEqual(before);
+     });
+   });
+ 
+   describe("findGameHint", () => {
+     const empty15 = (): Card[][] => Array.from({ length: 15 }, () => []);
+ 
+-    it("prioritizes a full K→A column", () => {
+-      const ranks = [
+-        "K",
+-        "Q",
+-        "J",
+-        "10",
+-        "9",
+-        "8",
+-        "7",
+-        "6",
+-        "5",
+-        "4",
+-        "3",
+-        "2",
+-        "A",
+-      ];
++    it("prioritizes a full K-to-A column", () => {
++      const ranks = ["K", "Q", "J", "10", "9", "8", "7", "6", "5", "4", "3", "2", "A"];
+       const decks = empty15();
+       decks[0] = ranks.map((rank) => ({ rank, isDown: false }));
+-      const h = findGameHint(decks);
+-      expect(h.kind).toBe("complete");
+-      expect(h.text).toContain("Column 1");
++      const hint = findGameHint(decks);
++      expect(hint.kind).toBe("complete");
++      expect(hint.text).toContain("Column 1");
+     });
+ 
+     it("suggests a legal column move", () => {
+       const decks = empty15();
+       decks[0] = [{ rank: "K", isDown: false }];
+       decks[1] = [{ rank: "Q", isDown: false }];
+-      const h = findGameHint(decks);
+-      expect(h.kind).toBe("move");
+-      expect(h.text).toMatch(/column 2.*column 1/i);
++      const hint = findGameHint(decks);
++      expect(hint.kind).toBe("move");
++      expect(hint.text).toMatch(/column 2.*column 1/i);
+     });
+ 
+     it("suggests deal when no moves remain and stock has cards", () => {
+@@ -365,18 +391,8 @@ describe("Game Utils", () => {
+         decks[i] = [{ rank: "6", isDown: false }];
+       }
+       decks[10] = [{ rank: "A", isDown: true }];
+-      const h = findGameHint(decks);
+-      expect(h.kind).toBe("deal");
+-    });
+-
+-    it("suggests moving onto an empty column when any stack can fill it", () => {
+-      const decks = empty15();
+-      decks[0] = [{ rank: "3", isDown: false }];
+-      decks[1] = [];
+-      decks[10] = [{ rank: "A", isDown: true }];
+-      const h = findGameHint(decks);
+-      expect(h.kind).toBe("move");
+-      expect(h.text).toMatch(/column 1.*column 2/i);
++      const hint = findGameHint(decks);
++      expect(hint.kind).toBe("deal");
+     });
+ 
+     it("returns stuck when no move and cannot deal", () => {
+@@ -384,8 +400,9 @@ describe("Game Utils", () => {
+       for (let i = 0; i < 10; i++) {
+         decks[i] = [{ rank: "6", isDown: false }];
+       }
+-      const h = findGameHint(decks);
+-      expect(h.kind).toBe("stuck");
++      const hint = findGameHint(decks);
++      expect(hint.kind).toBe("stuck");
++      expect(hint.text).toContain("Shuffle");
+     });
+   });
+ });

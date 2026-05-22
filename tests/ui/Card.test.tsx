@@ -1,9 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import Card from "../../src/ui/Card";
 import type { GameState, Card as CardType } from "../../src/types/game";
 
-// Mock the CSS module
 vi.mock("../../src/styles/Card.module.css", () => ({
   default: {
     card: "card-class",
@@ -21,10 +20,11 @@ const createMockGameState = (): GameState => ({
       { rank: "J", isDown: false },
     ],
     [{ rank: "A", isDown: false }],
-    [],
+    ...Array.from({ length: 13 }, () => []),
   ],
   completed: 0,
   moveCount: 0,
+  reshufflesUsed: 0,
 });
 
 const renderCard = (props: {
@@ -32,9 +32,7 @@ const renderCard = (props: {
   index: number;
   game: GameState;
   deckIndex: number;
-}) => {
-  return render(<Card {...props} setGame={mockSetGame} />);
-};
+}) => render(<Card {...props} setGame={mockSetGame} />);
 
 describe("Card Component", () => {
   beforeEach(() => {
@@ -53,7 +51,6 @@ describe("Card Component", () => {
         deckIndex: 0,
       });
 
-      // Should render a div element
       expect(container.firstChild).toBeInTheDocument();
       expect(container.firstChild).toHaveClass("card-class");
     });
@@ -69,7 +66,6 @@ describe("Card Component", () => {
         deckIndex: 0,
       });
 
-      // Should render a div element
       expect(container.firstChild).toBeInTheDocument();
       expect(container.firstChild).toHaveClass("card-class");
     });
@@ -101,7 +97,6 @@ describe("Card Component", () => {
         deckIndex: 1,
       });
 
-      // Should render successfully
       expect(container.firstChild).toBeInTheDocument();
     });
 
@@ -116,7 +111,6 @@ describe("Card Component", () => {
         deckIndex: 2,
       });
 
-      // Should render successfully
       expect(container.firstChild).toBeInTheDocument();
     });
 
@@ -131,6 +125,7 @@ describe("Card Component", () => {
         ],
         completed: 0,
         moveCount: 0,
+        reshufflesUsed: 0,
       };
       const { container } = renderCard({
         data: { rank: "K", isDown: false },
@@ -165,7 +160,6 @@ describe("Card Component", () => {
         deckIndex: 0,
       });
 
-      // Should handle empty rank gracefully
       expect(container.firstChild).toBeNull();
     });
 
@@ -180,7 +174,6 @@ describe("Card Component", () => {
         deckIndex: 0,
       });
 
-      // Should handle undefined data gracefully
       expect(container.firstChild).toBeNull();
     });
   });

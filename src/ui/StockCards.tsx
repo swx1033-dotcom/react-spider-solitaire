@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import styles from "../styles/StockCards.module.css";
 import type { GameState, Card } from "../types/game";
+import { TABLEAU_COLUMN_COUNT } from "../utils/game";
 
 interface StockCardsProps {
   index: number;
@@ -25,14 +26,17 @@ const StockCards: React.FC<StockCardsProps> = ({
     if (!deck || deck.length === 0) return;
 
     const tempDecks = game.decks.map((col) => [...col]);
-
     const cardsToDeal = deck.map((card) => ({ ...card, isDown: false }));
 
-    for (let i = 0; i < 10 && i < cardsToDeal.length; i++) {
-      tempDecks[i].push(cardsToDeal[i]);
+    for (
+      let columnIndex = 0;
+      columnIndex < TABLEAU_COLUMN_COUNT && columnIndex < cardsToDeal.length;
+      columnIndex++
+    ) {
+      tempDecks[columnIndex].push(cardsToDeal[columnIndex]);
     }
 
-    tempDecks[10 + index] = [];
+    tempDecks[TABLEAU_COLUMN_COUNT + index] = [];
 
     setGame((prevState) => ({
       ...prevState,
@@ -46,8 +50,8 @@ const StockCards: React.FC<StockCardsProps> = ({
   if (!deck || deck.length === 0) return null;
 
   const remainingStockPiles = game.decks
-    .slice(10)
-    .filter((p) => p.length > 0).length;
+    .slice(TABLEAU_COLUMN_COUNT)
+    .filter((pile) => pile.length > 0).length;
 
   return (
     <>

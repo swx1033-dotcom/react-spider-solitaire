@@ -2,7 +2,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, act } from "@testing-library/react";
 import Header from "../../src/ui/Header";
 
-// Mock the CSS module
 vi.mock("../../src/styles/Header.module.css", () => ({
   default: {
     header: "header-class",
@@ -24,15 +23,20 @@ vi.mock("../../src/styles/Header.module.css", () => ({
 const mockOnNewGame = vi.fn();
 const mockOnUndo = vi.fn();
 const mockOnHint = vi.fn();
+const mockOnReshuffle = vi.fn();
 
 const renderHeader = (props = {}) => {
   const defaultProps = {
     completed: 0,
     moveCount: 0,
+    reshufflesUsed: 0,
+    maxReshuffles: 3,
     onNewGame: mockOnNewGame,
     onUndo: mockOnUndo,
     onHint: mockOnHint,
+    onReshuffle: mockOnReshuffle,
     canUndo: false,
+    canReshuffle: true,
     ...props,
   };
 
@@ -56,16 +60,19 @@ describe("Header Component", () => {
       expect(screen.getByText("🎮 New Game")).toBeInTheDocument();
       expect(screen.getByText("↩️ Undo")).toBeInTheDocument();
       expect(screen.getByText("💡 Hint")).toBeInTheDocument();
+      expect(screen.getByText("🔀 Shuffle")).toBeInTheDocument();
       expect(screen.getByText("⏸️")).toBeInTheDocument();
     });
 
     it("should display correct game statistics", () => {
-      renderHeader({ completed: 3, moveCount: 15 });
+      renderHeader({ completed: 3, moveCount: 15, reshufflesUsed: 1 });
 
       expect(screen.getByText("Completed:")).toBeInTheDocument();
       expect(screen.getByText("3/8")).toBeInTheDocument();
       expect(screen.getByText("Moves:")).toBeInTheDocument();
       expect(screen.getByText("15")).toBeInTheDocument();
+      expect(screen.getByText("Shuffles:")).toBeInTheDocument();
+      expect(screen.getByText("1/3")).toBeInTheDocument();
       expect(screen.getByText("Time:")).toBeInTheDocument();
     });
 
@@ -88,6 +95,13 @@ describe("Header Component", () => {
       const undoButton = screen.getByText("↩️ Undo");
       expect(undoButton).not.toBeDisabled();
     });
+
+    it("should disable shuffle button when no reshuffles remain", () => {
+      renderHeader({ canReshuffle: false, reshufflesUsed: 3 });
+
+      const shuffleButton = screen.getByText("🔀 Shuffle");
+      expect(shuffleButton).toBeDisabled();
+    });
   });
 
   describe("Timer Functionality", () => {
@@ -106,13 +120,11 @@ describe("Header Component", () => {
     it("should format time correctly for different durations", () => {
       renderHeader();
 
-      // Test 1 minute
       act(() => {
         vi.advanceTimersByTime(60000);
       });
       expect(screen.getByText("1:00")).toBeInTheDocument();
 
-      // Test 1 hour
       act(() => {
         vi.advanceTimersByTime(3600000);
       });
@@ -125,10 +137,8 @@ describe("Header Component", () => {
       const pauseButton = screen.getByText("⏸️");
       fireEvent.click(pauseButton);
 
-      // Timer should show play button
       expect(screen.getByText("▶️")).toBeInTheDocument();
 
-      // Timer should not advance
       act(() => {
         vi.advanceTimersByTime(1000);
       });
@@ -144,10 +154,8 @@ describe("Header Component", () => {
       const playButton = screen.getByText("▶️");
       fireEvent.click(playButton);
 
-      // Timer should show pause button
       expect(screen.getByText("⏸️")).toBeInTheDocument();
 
-      // Timer should advance
       act(() => {
         vi.advanceTimersByTime(1000);
       });
@@ -157,17 +165,14 @@ describe("Header Component", () => {
     it("should reset timer when new game is started", () => {
       renderHeader();
 
-      // Advance timer
       act(() => {
         vi.advanceTimersByTime(5000);
       });
       expect(screen.getByText("0:05")).toBeInTheDocument();
 
-      // Start new game
       const newGameButton = screen.getByText("🎮 New Game");
       fireEvent.click(newGameButton);
 
-      // Timer should reset
       expect(screen.getByText("0:00")).toBeInTheDocument();
     });
 
@@ -179,6 +184,7 @@ describe("Header Component", () => {
           onNewGame={mockOnNewGame}
           onUndo={mockOnUndo}
           onHint={mockOnHint}
+          onReshuffle={mockOnReshuffle}
           canUndo={false}
         />,
       );
@@ -195,6 +201,7 @@ describe("Header Component", () => {
           onNewGame={mockOnNewGame}
           onUndo={mockOnUndo}
           onHint={mockOnHint}
+          onReshuffle={mockOnReshuffle}
           canUndo={false}
         />,
       );
@@ -270,19 +277,24 @@ describe("Header Component", () => {
       expect(mockOnHint).toHaveBeenCalledTimes(1);
     });
 
-    it("should toggle timer pause/resume when pause button is clicked", () => {
+    it("should call onReshuffle when shuffle button is clicked", () => {
+      renderHeader();
+
+      const shuffleButton = screen.getByText("🔀 Shuffle");
+      fireEvent.click(shuffleButton);
+
+      expect(mockOnReshuffle).toHaveBeenCalledTimes(1);
+    });
+
+    it("should toggle timer pause and resume when pause button is clicked", () => {
       renderHeader();
 
       const pauseButton = screen.getByText("⏸️");
-
-      // Initial state should be pause button
       expect(pauseButton).toBeInTheDocument();
 
-      // Click to pause
       fireEvent.click(pauseButton);
       expect(screen.getByText("▶️")).toBeInTheDocument();
 
-      // Click to resume
       fireEvent.click(screen.getByText("▶️"));
       expect(screen.getByText("⏸️")).toBeInTheDocument();
     });
@@ -306,11 +318,11 @@ describe("Header Component", () => {
       expect(playButton).toHaveAttribute("title", "Resume Timer");
     });
 
-    it("should have proper disabled state for undo button", () => {
-      renderHeader({ canUndo: false });
+    it("should expose remaining shuffle count in title", () => {
+      renderHeader({ reshufflesUsed: 2, maxReshuffles: 3 });
 
-      const undoButton = screen.getByText("↩️ Undo");
-      expect(undoButton).toBeDisabled();
+      const shuffleButton = screen.getByText("🔀 Shuffle");
+      expect(shuffleButton).toHaveAttribute("title", "Shuffle tableau (1/3 left)");
     });
   });
 
@@ -318,14 +330,10 @@ describe("Header Component", () => {
     it("should handle undefined callback props gracefully", () => {
       render(<Header completed={0} moveCount={0} onNewGame={mockOnNewGame} />);
 
-      // Should not throw errors when optional callbacks are undefined
-      const undoButton = screen.getByText("↩️ Undo");
-      const hintButton = screen.getByText("💡 Hint");
+      fireEvent.click(screen.getByText("↩️ Undo"));
+      fireEvent.click(screen.getByText("💡 Hint"));
+      fireEvent.click(screen.getByText("🔀 Shuffle"));
 
-      fireEvent.click(undoButton);
-      fireEvent.click(hintButton);
-
-      // Should not crash
       expect(screen.getByText("↩️ Undo")).toBeInTheDocument();
     });
 
@@ -344,9 +352,8 @@ describe("Header Component", () => {
     it("should handle very long timer durations", () => {
       renderHeader();
 
-      // Advance to 2 hours and 30 minutes
       act(() => {
-        vi.advanceTimersByTime(9000000); // 2.5 hours in milliseconds
+        vi.advanceTimersByTime(9000000);
       });
 
       expect(screen.getByText("2:30:00")).toBeInTheDocument();

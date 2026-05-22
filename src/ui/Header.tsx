@@ -4,21 +4,28 @@ import styles from "../styles/Header.module.css";
 interface HeaderProps {
   completed: number;
   moveCount: number;
+  reshufflesUsed?: number;
+  maxReshuffles?: number;
   onNewGame: () => void;
   onUndo?: () => void;
   onHint?: () => void;
+  onReshuffle?: () => void;
   canUndo?: boolean;
-  /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
+  canReshuffle?: boolean;
   sessionKey?: number;
 }
 
 const Header: React.FC<HeaderProps> = ({
   completed,
   moveCount,
+  reshufflesUsed = 0,
+  maxReshuffles = 3,
   onNewGame,
   onUndo,
   onHint,
+  onReshuffle,
   canUndo = false,
+  canReshuffle = true,
   sessionKey = 0,
 }) => {
   const [timer, setTimer] = useState<number>(0);
@@ -62,6 +69,7 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   const isGameCompleted = completed === 8;
+  const reshufflesRemaining = Math.max(maxReshuffles - reshufflesUsed, 0);
 
   return (
     <div className={styles.header}>
@@ -82,6 +90,15 @@ const Header: React.FC<HeaderProps> = ({
         <button type="button" className={styles.btn} onClick={() => onHint?.()}>
           💡 Hint
         </button>
+        <button
+          type="button"
+          className={`${styles.btn} ${!canReshuffle ? styles.disabled : ""}`}
+          onClick={() => onReshuffle?.()}
+          disabled={!canReshuffle}
+          title={`Shuffle tableau (${reshufflesRemaining}/${maxReshuffles} left)`}
+        >
+          🔀 Shuffle
+        </button>
       </div>
       <div className={styles.centerSection}>
         <div className={styles.stats}>
@@ -98,6 +115,12 @@ const Header: React.FC<HeaderProps> = ({
           <div className={styles.statItem}>
             <span className={styles.statLabel}>Moves:</span>
             <span className={styles.statValue}>{moveCount}</span>
+          </div>
+          <div className={styles.statItem}>
+            <span className={styles.statLabel}>Shuffles:</span>
+            <span className={styles.statValue}>
+              {reshufflesUsed}/{maxReshuffles}
+            </span>
           </div>
           <div className={styles.statItem}>
             <span className={styles.statLabel}>Time:</span>

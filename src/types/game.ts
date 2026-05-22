@@ -8,6 +8,7 @@ export interface GameState {
   decks: Card[][];
   completed: number;
   moveCount: number;
+  reshufflesUsed: number;
 }
 
 export interface GameInit {
