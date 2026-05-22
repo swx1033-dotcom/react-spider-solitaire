@@ -8,6 +8,8 @@ interface CardHolderProps {
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deck: CardType[];
   deckIndex: number;
+  isInteractionLocked: boolean;
+  interactionLockVersion: number;
 }
 
 const CardHolder: React.FC<CardHolderProps> = ({
@@ -15,6 +17,8 @@ const CardHolder: React.FC<CardHolderProps> = ({
   setGame,
   deck,
   deckIndex,
+  isInteractionLocked,
+  interactionLockVersion,
 }) => {
   const validCards = deck.filter((card) => card && card.rank);
 
@@ -24,10 +28,12 @@ const CardHolder: React.FC<CardHolderProps> = ({
     <div
       className={`${styles.cardHolder} cardHolder${isEmpty ? ` ${styles.emptyColumn}` : ""}`}
       onDragOver={(e) => {
+        if (isInteractionLocked) return;
         e.preventDefault();
         e.stopPropagation();
       }}
       onDrop={(e) => {
+        if (isInteractionLocked) return;
         e.preventDefault();
         e.stopPropagation();
       }}
@@ -44,6 +50,8 @@ const CardHolder: React.FC<CardHolderProps> = ({
           deckIndex={deckIndex}
           game={game}
           setGame={setGame}
+          isInteractionLocked={isInteractionLocked}
+          interactionLockVersion={interactionLockVersion}
         />
       ))}
     </div>

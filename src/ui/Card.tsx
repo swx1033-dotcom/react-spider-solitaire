@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import {
   getRank,
   checkCompletedSet,
@@ -14,7 +14,16 @@ interface CardProps {
   game: GameState;
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deckIndex: number;
+  isInteractionLocked?: boolean;
+  interactionLockVersion?: number;
 }
+
+type DragState = {
+  mouseX: number;
+  mouseY: number;
+  selectedCards: HTMLElement[];
+  lockVersion: number;
+};
 
 const Card: React.FC<CardProps> = ({
   data,
@@ -22,26 +31,47 @@ const Card: React.FC<CardProps> = ({
   game,
   setGame,
   deckIndex,
+  isInteractionLocked = false,
+  interactionLockVersion = 0,
 }) => {
+  const dragStateRef = useRef<DragState | null>(null);
+
   if (!data || !data.rank) return null;
 
   const column = game.decks[deckIndex] ?? [];
-  const canDrag = !data.isDown && isValidDescendingRun(column, index);
+  const canDrag =
+    !isInteractionLocked && !data.isDown && isValidDescendingRun(column, index);
 
-  let mouseX: number;
-  let mouseY: number;
-  let selectedCards: HTMLElement[] = [];
+  const restoreDraggedCards = (selectedCards: HTMLElement[]): void => {
+    selectedCards.forEach((card, cardIndex) => {
+      card.style.visibility = "visible";
+      card.classList.remove(styles.dragging);
+      card.style.transform = `translate(0px,${cardIndex * 30}px)`;
+    });
+  };
+
+  const resetDragState = (): void => {
+    const dragState = dragStateRef.current;
+    if (!dragState) return;
+    restoreDraggedCards(dragState.selectedCards);
+    dragStateRef.current = null;
+  };
+
+  useEffect(() => {
+    if (isInteractionLocked) {
+      resetDragState();
+    }
+  }, [isInteractionLocked, interactionLockVersion]);
 
   const dragStart = (event: React.DragEvent<HTMLDivElement>): void => {
-    if (!canDrag) return;
+    if (!canDrag || isInteractionLocked) return;
 
     const currentCard = event.currentTarget;
     const currentCardIndex = parseInt(
       currentCard.getAttribute("data-index") || "0",
     );
 
-    selectedCards.length = 0;
-    selectedCards.push(currentCard);
+    const selectedCards: HTMLElement[] = [currentCard];
 
     let currentRank = getRank(
       currentCard.getAttribute("data-original-rank") || "0",
@@ -51,7 +81,7 @@ const Card: React.FC<CardProps> = ({
     for (let i = currentCardIndex + 1; i < colLen; i++) {
       const cardElement = document.querySelector(
         `[data-deck-index="${deckIndex}"][data-index="${i}"]`,
-      ) as HTMLElement;
+      ) as HTMLElement | null;
       if (!cardElement) break;
       if (cardElement.getAttribute("data-isdown") === "true") break;
       const siblingRank = getRank(
@@ -62,57 +92,75 @@ const Card: React.FC<CardProps> = ({
       currentRank = siblingRank;
     }
 
-    mouseX = event.pageX;
-    mouseY = event.pageY;
+    dragStateRef.current = {
+      mouseX: event.pageX,
+      mouseY: event.pageY,
+      selectedCards,
+      lockVersion: interactionLockVersion,
+    };
   };
 
   const dragOver = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (isInteractionLocked) return;
     event.preventDefault();
     event.stopPropagation();
   };
 
   const drag = (event: React.DragEvent<HTMLDivElement>): void => {
-    const diffX = event.pageX - mouseX;
-    const diffY = event.pageY - mouseY;
-    selectedCards.forEach((card, index) => {
+    const dragState = dragStateRef.current;
+    if (!dragState) return;
+    if (
+      isInteractionLocked ||
+      dragState.lockVersion !== interactionLockVersion
+    ) {
+      resetDragState();
+      return;
+    }
+
+    const diffX = event.pageX - dragState.mouseX;
+    const diffY = event.pageY - dragState.mouseY;
+    dragState.selectedCards.forEach((card, cardIndex) => {
       card.classList.add(styles.dragging);
-      const originalTop = index * 30;
+      const originalTop = cardIndex * 30;
       card.style.transform = `translate(${diffX}px,${diffY + originalTop}px)`;
     });
   };
 
   const dragEnd = (event: React.DragEvent<HTMLDivElement>): void => {
-    if (!selectedCards.length) return;
+    const dragState = dragStateRef.current;
+    if (!dragState || dragState.selectedCards.length === 0) return;
+
+    const { selectedCards, lockVersion } = dragState;
     selectedCards.forEach((card) => {
       card.style.visibility = "hidden";
     });
-    const xEndPoint = event.pageX;
-    const yEndPoint = event.pageY;
+
+    const xEndPoint = event.clientX;
+    const yEndPoint = event.clientY;
     const dropTarget = document.elementFromPoint(
       xEndPoint,
       yEndPoint,
-    ) as HTMLElement;
-    selectedCards.forEach((card, index) => {
-      card.style.visibility = "visible";
-      card.classList.remove(styles.dragging);
-      const originalTop = index * 30;
-      card.style.transform = `translate(0px,${originalTop}px)`;
-    });
+    ) as HTMLElement | null;
+
+    restoreDraggedCards(selectedCards);
+    dragStateRef.current = null;
+
+    if (isInteractionLocked || lockVersion !== interactionLockVersion) {
+      return;
+    }
+
     if (!dropTarget) {
-      selectedCards = [];
       return;
     }
     const isDraggingSelf = selectedCards.some((card) => card === dropTarget);
     if (isDraggingSelf) {
-      selectedCards = [];
       return;
     }
     let targetDeckIndex = -1;
     const targetElement = dropTarget.closest(
       ".card, .cardHolder",
-    ) as HTMLElement;
+    ) as HTMLElement | null;
     if (!targetElement) {
-      selectedCards = [];
       return;
     }
     if (targetElement.classList.contains("card")) {
@@ -124,18 +172,16 @@ const Card: React.FC<CardProps> = ({
     } else {
       const cardHolder = targetElement.closest(".cardHolder");
       if (cardHolder) {
-        targetDeckIndex = parseInt(cardHolder.id);
+        targetDeckIndex = parseInt((cardHolder as HTMLElement).id);
       }
     }
     if (targetDeckIndex === -1 || targetDeckIndex > 9) {
-      selectedCards = [];
       return;
     }
     const sourceDeckIndex = parseInt(
       selectedCards[0].getAttribute("data-deck-index") || "-1",
     );
     if (sourceDeckIndex === targetDeckIndex || sourceDeckIndex > 9) {
-      selectedCards = [];
       return;
     }
     const topMovedRankStr =
@@ -174,7 +220,6 @@ const Card: React.FC<CardProps> = ({
         completed: prevState.completed + completedDelta,
       }));
     }
-    selectedCards = [];
   };
 
   const flipNewlyExposedCards = (decks: CardType[][]): void => {
@@ -186,7 +231,6 @@ const Card: React.FC<CardProps> = ({
     }
   };
 
-  /** Removes completed K→A runs from the first 10 columns; returns how many runs were removed. */
   const removeCompletedSetsFromTableau = (decks: CardType[][]): number => {
     let completedSets = 0;
     for (let i = 0; i < 10; i++) {

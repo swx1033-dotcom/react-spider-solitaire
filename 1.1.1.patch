@@ -1,0 +1,1772 @@
+diff --git a/src/styles/CardBoard.module.css b/src/styles/CardBoard.module.css
+index 3ced4f0..c87c4c8 100644
+--- a/src/styles/CardBoard.module.css
++++ b/src/styles/CardBoard.module.css
+@@ -1,3 +1,7 @@
++.tableauArea {
++  position: relative;
++}
++
+ .board {
+   background-color: seagreen;
+   height: 65vh;
+@@ -6,3 +10,25 @@
+   justify-content: space-evenly;
+   box-sizing: border-box;
+ }
++
++.pauseOverlay {
++  position: absolute;
++  inset: 0;
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  background: rgba(5, 37, 18, 0.45);
++  backdrop-filter: blur(2px);
++  z-index: 1000;
++}
++
++.pauseLabel {
++  padding: 16px 28px;
++  border-radius: 12px;
++  background: rgba(255, 255, 255, 0.92);
++  color: #1f5132;
++  font-size: 28px;
++  font-weight: 700;
++  letter-spacing: 0.08em;
++  text-transform: uppercase;
++}
+diff --git a/src/types/game.ts b/src/types/game.ts
+index f25296b..fb379bd 100644
+--- a/src/types/game.ts
++++ b/src/types/game.ts
+@@ -15,6 +15,8 @@ export interface GameInit {
+   cards: Card[];
+ }
+ 
++export type GameStatus = "running" | "paused" | "won";
++
+ export type CardRank =
+   | "A"
+   | "2"
+diff --git a/src/ui/Card.tsx b/src/ui/Card.tsx
+index e729170..fee6f70 100644
+--- a/src/ui/Card.tsx
++++ b/src/ui/Card.tsx
+@@ -1,4 +1,4 @@
+-import React from "react";
++import React, { useEffect, useRef } from "react";
+ import {
+   getRank,
+   checkCompletedSet,
+@@ -14,34 +14,64 @@ interface CardProps {
+   game: GameState;
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   deckIndex: number;
++  isInteractionLocked?: boolean;
++  interactionLockVersion?: number;
+ }
+ 
++type DragState = {
++  mouseX: number;
++  mouseY: number;
++  selectedCards: HTMLElement[];
++  lockVersion: number;
++};
++
+ const Card: React.FC<CardProps> = ({
+   data,
+   index,
+   game,
+   setGame,
+   deckIndex,
++  isInteractionLocked = false,
++  interactionLockVersion = 0,
+ }) => {
++  const dragStateRef = useRef<DragState | null>(null);
++
+   if (!data || !data.rank) return null;
+ 
+   const column = game.decks[deckIndex] ?? [];
+-  const canDrag = !data.isDown && isValidDescendingRun(column, index);
++  const canDrag =
++    !isInteractionLocked && !data.isDown && isValidDescendingRun(column, index);
+ 
+-  let mouseX: number;
+-  let mouseY: number;
+-  let selectedCards: HTMLElement[] = [];
++  const restoreDraggedCards = (selectedCards: HTMLElement[]): void => {
++    selectedCards.forEach((card, cardIndex) => {
++      card.style.visibility = "visible";
++      card.classList.remove(styles.dragging);
++      card.style.transform = `translate(0px,${cardIndex * 30}px)`;
++    });
++  };
++
++  const resetDragState = (): void => {
++    const dragState = dragStateRef.current;
++    if (!dragState) return;
++    restoreDraggedCards(dragState.selectedCards);
++    dragStateRef.current = null;
++  };
++
++  useEffect(() => {
++    if (isInteractionLocked) {
++      resetDragState();
++    }
++  }, [isInteractionLocked, interactionLockVersion]);
+ 
+   const dragStart = (event: React.DragEvent<HTMLDivElement>): void => {
+-    if (!canDrag) return;
++    if (!canDrag || isInteractionLocked) return;
+ 
+     const currentCard = event.currentTarget;
+     const currentCardIndex = parseInt(
+       currentCard.getAttribute("data-index") || "0",
+     );
+ 
+-    selectedCards.length = 0;
+-    selectedCards.push(currentCard);
++    const selectedCards: HTMLElement[] = [currentCard];
+ 
+     let currentRank = getRank(
+       currentCard.getAttribute("data-original-rank") || "0",
+@@ -51,7 +81,7 @@ const Card: React.FC<CardProps> = ({
+     for (let i = currentCardIndex + 1; i < colLen; i++) {
+       const cardElement = document.querySelector(
+         `[data-deck-index="${deckIndex}"][data-index="${i}"]`,
+-      ) as HTMLElement;
++      ) as HTMLElement | null;
+       if (!cardElement) break;
+       if (cardElement.getAttribute("data-isdown") === "true") break;
+       const siblingRank = getRank(
+@@ -62,57 +92,75 @@ const Card: React.FC<CardProps> = ({
+       currentRank = siblingRank;
+     }
+ 
+-    mouseX = event.pageX;
+-    mouseY = event.pageY;
++    dragStateRef.current = {
++      mouseX: event.pageX,
++      mouseY: event.pageY,
++      selectedCards,
++      lockVersion: interactionLockVersion,
++    };
+   };
+ 
+   const dragOver = (event: React.DragEvent<HTMLDivElement>): void => {
++    if (isInteractionLocked) return;
+     event.preventDefault();
+     event.stopPropagation();
+   };
+ 
+   const drag = (event: React.DragEvent<HTMLDivElement>): void => {
+-    const diffX = event.pageX - mouseX;
+-    const diffY = event.pageY - mouseY;
+-    selectedCards.forEach((card, index) => {
++    const dragState = dragStateRef.current;
++    if (!dragState) return;
++    if (
++      isInteractionLocked ||
++      dragState.lockVersion !== interactionLockVersion
++    ) {
++      resetDragState();
++      return;
++    }
++
++    const diffX = event.pageX - dragState.mouseX;
++    const diffY = event.pageY - dragState.mouseY;
++    dragState.selectedCards.forEach((card, cardIndex) => {
+       card.classList.add(styles.dragging);
+-      const originalTop = index * 30;
++      const originalTop = cardIndex * 30;
+       card.style.transform = `translate(${diffX}px,${diffY + originalTop}px)`;
+     });
+   };
+ 
+   const dragEnd = (event: React.DragEvent<HTMLDivElement>): void => {
+-    if (!selectedCards.length) return;
++    const dragState = dragStateRef.current;
++    if (!dragState || dragState.selectedCards.length === 0) return;
++
++    const { selectedCards, lockVersion } = dragState;
+     selectedCards.forEach((card) => {
+       card.style.visibility = "hidden";
+     });
+-    const xEndPoint = event.pageX;
+-    const yEndPoint = event.pageY;
++
++    const xEndPoint = event.clientX;
++    const yEndPoint = event.clientY;
+     const dropTarget = document.elementFromPoint(
+       xEndPoint,
+       yEndPoint,
+-    ) as HTMLElement;
+-    selectedCards.forEach((card, index) => {
+-      card.style.visibility = "visible";
+-      card.classList.remove(styles.dragging);
+-      const originalTop = index * 30;
+-      card.style.transform = `translate(0px,${originalTop}px)`;
+-    });
++    ) as HTMLElement | null;
++
++    restoreDraggedCards(selectedCards);
++    dragStateRef.current = null;
++
++    if (isInteractionLocked || lockVersion !== interactionLockVersion) {
++      return;
++    }
++
+     if (!dropTarget) {
+-      selectedCards = [];
+       return;
+     }
+     const isDraggingSelf = selectedCards.some((card) => card === dropTarget);
+     if (isDraggingSelf) {
+-      selectedCards = [];
+       return;
+     }
+     let targetDeckIndex = -1;
+     const targetElement = dropTarget.closest(
+       ".card, .cardHolder",
+-    ) as HTMLElement;
++    ) as HTMLElement | null;
+     if (!targetElement) {
+-      selectedCards = [];
+       return;
+     }
+     if (targetElement.classList.contains("card")) {
+@@ -124,18 +172,16 @@ const Card: React.FC<CardProps> = ({
+     } else {
+       const cardHolder = targetElement.closest(".cardHolder");
+       if (cardHolder) {
+-        targetDeckIndex = parseInt(cardHolder.id);
++        targetDeckIndex = parseInt((cardHolder as HTMLElement).id);
+       }
+     }
+     if (targetDeckIndex === -1 || targetDeckIndex > 9) {
+-      selectedCards = [];
+       return;
+     }
+     const sourceDeckIndex = parseInt(
+       selectedCards[0].getAttribute("data-deck-index") || "-1",
+     );
+     if (sourceDeckIndex === targetDeckIndex || sourceDeckIndex > 9) {
+-      selectedCards = [];
+       return;
+     }
+     const topMovedRankStr =
+@@ -174,7 +220,6 @@ const Card: React.FC<CardProps> = ({
+         completed: prevState.completed + completedDelta,
+       }));
+     }
+-    selectedCards = [];
+   };
+ 
+   const flipNewlyExposedCards = (decks: CardType[][]): void => {
+@@ -186,7 +231,6 @@ const Card: React.FC<CardProps> = ({
+     }
+   };
+ 
+-  /** Removes completed K→A runs from the first 10 columns; returns how many runs were removed. */
+   const removeCompletedSetsFromTableau = (decks: CardType[][]): number => {
+     let completedSets = 0;
+     for (let i = 0; i < 10; i++) {
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..e53d4f1 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -4,8 +4,12 @@ import CardHolder from "./CardHolder";
+ import styles from "../styles/CardBoard.module.css";
+ import Header from "./Header";
+ import CardBoardBottom from "./CardBoardBottom";
+-import { GameState } from "../types/game";
+-import { showInfo, showWonPopup } from "../utils/toaster";
++import type { GameState, GameStatus } from "../types/game";
++import {
++  confirmNewGameWhilePaused,
++  showInfo,
++  showWonPopup,
++} from "../utils/toaster";
+ 
+ const cloneGameState = (g: GameState): GameState => ({
+   completed: g.completed,
+@@ -22,17 +26,98 @@ const CardBoard: React.FC = () => {
+   const [, setGameHistory] = useState<GameState[]>([]);
+   const [canUndo, setCanUndo] = useState<boolean>(false);
+   const [gameKey, setGameKey] = useState<number>(0);
++  const [gameStatus, setGameStatus] = useState<GameStatus>("running");
++  const [elapsedMs, setElapsedMs] = useState<number>(0);
++  const [interactionLockVersion, setInteractionLockVersion] =
++    useState<number>(0);
+   const winPopupScheduledRef = useRef(false);
++  const gameStatusRef = useRef<GameStatus>("running");
++  const elapsedBeforePauseRef = useRef<number>(0);
++  const resumedAtRef = useRef<number | null>(Date.now());
++
++  const setSessionStatus = (nextStatus: GameStatus): void => {
++    gameStatusRef.current = nextStatus;
++    setGameStatus(nextStatus);
++  };
++
++  const freezeInteractions = (): void => {
++    setInteractionLockVersion((prev) => prev + 1);
++  };
++
++  const resetClock = (): void => {
++    elapsedBeforePauseRef.current = 0;
++    resumedAtRef.current = Date.now();
++    setElapsedMs(0);
++  };
++
++  const stopClock = (): void => {
++    if (resumedAtRef.current === null) {
++      setElapsedMs(elapsedBeforePauseRef.current);
++      return;
++    }
++
++    const frozenElapsed =
++      elapsedBeforePauseRef.current + (Date.now() - resumedAtRef.current);
++    elapsedBeforePauseRef.current = frozenElapsed;
++    resumedAtRef.current = null;
++    setElapsedMs(frozenElapsed);
++  };
++
++  const resumeClock = (): void => {
++    resumedAtRef.current = Date.now();
++  };
++
++  const startNewGame = (): void => {
++    const init = initiateGame();
++    const newGameState: GameState = {
++      decks: init.decks,
++      completed: 0,
++      moveCount: 0,
++    };
++    setGame(newGameState);
++    setGameHistory([]);
++    setCanUndo(false);
++    setSessionStatus("running");
++    resetClock();
++    freezeInteractions();
++    setGameKey((prev) => prev + 1);
++  };
+ 
+   useEffect(() => {
+     startNewGame();
+   }, []);
+ 
++  useEffect(() => {
++    if (gameStatus !== "running") return;
++
++    if (resumedAtRef.current === null) {
++      resumedAtRef.current = Date.now();
++    }
++
++    const syncElapsed = (): void => {
++      if (resumedAtRef.current === null) return;
++      setElapsedMs(
++        elapsedBeforePauseRef.current + (Date.now() - resumedAtRef.current),
++      );
++    };
++
++    syncElapsed();
++    const interval = window.setInterval(syncElapsed, 250);
++    return () => window.clearInterval(interval);
++  }, [gameStatus, gameKey]);
++
+   useEffect(() => {
+     if (game.completed < 8) {
+       winPopupScheduledRef.current = false;
+       return;
+     }
++
++    if (gameStatusRef.current !== "won") {
++      stopClock();
++      setSessionStatus("won");
++      freezeInteractions();
++    }
++
+     if (winPopupScheduledRef.current) return;
+     winPopupScheduledRef.current = true;
+     const t = window.setTimeout(() => {
+@@ -44,20 +129,32 @@ const CardBoard: React.FC = () => {
+     return () => window.clearTimeout(t);
+   }, [game.completed]);
+ 
+-  const startNewGame = (): void => {
+-    const init = initiateGame();
+-    const newGameState: GameState = {
+-      decks: init.decks,
+-      completed: 0,
+-      moveCount: 0,
+-    };
+-    setGame(newGameState);
+-    setGameHistory([]);
+-    setCanUndo(false);
+-    setGameKey((prev) => prev + 1);
++  const handlePauseToggle = (): void => {
++    if (gameStatusRef.current === "won") return;
++
++    if (gameStatusRef.current === "running") {
++      stopClock();
++      setSessionStatus("paused");
++      freezeInteractions();
++      return;
++    }
++
++    resumeClock();
++    setSessionStatus("running");
++  };
++
++  const handleNewGame = async (): Promise<void> => {
++    if (gameStatusRef.current === "paused") {
++      const confirmed = await confirmNewGameWhilePaused();
++      if (!confirmed) return;
++    }
++
++    startNewGame();
+   };
+ 
+   const handleUndo = (): void => {
++    if (gameStatusRef.current !== "running") return;
++
+     setGameHistory((prev) => {
+       if (prev.length === 0) return prev;
+       const previousState = prev[prev.length - 1];
+@@ -68,6 +165,7 @@ const CardBoard: React.FC = () => {
+   };
+ 
+   const handleHint = (): void => {
++    if (gameStatusRef.current !== "running") return;
+     showInfo(findGameHint(game.decks).text);
+   };
+ 
+@@ -75,40 +173,62 @@ const CardBoard: React.FC = () => {
+     next: React.SetStateAction<GameState>,
+   ): void => {
+     setGame((prev) => {
++      if (gameStatusRef.current !== "running") {
++        return prev;
++      }
++
+       const resolved = typeof next === "function" ? next(prev) : next;
+-      setGameHistory((h) => [...h, cloneGameState(prev)]);
++      if (resolved === prev) {
++        return prev;
++      }
++
++      setGameHistory((history) => [...history, cloneGameState(prev)]);
+       setCanUndo(true);
+       return resolved;
+     });
+   };
+ 
++  const isInteractionLocked = gameStatus !== "running";
++
+   return (
+     <div key={gameKey}>
+       <Header
+         completed={game.completed}
+         moveCount={game.moveCount}
+-        onNewGame={startNewGame}
++        timerSeconds={Math.floor(elapsedMs / 1000)}
++        status={gameStatus}
++        onNewGame={handleNewGame}
++        onTogglePause={handlePauseToggle}
+         onUndo={handleUndo}
+         onHint={handleHint}
+         canUndo={canUndo}
+-        sessionKey={gameKey}
+       />
+-      <div className={styles.board}>
+-        {game.decks.slice(0, 10).map((deck, index) => (
+-          <CardHolder
+-            deck={deck}
+-            game={game}
+-            deckIndex={index}
+-            setGame={updateGameWithHistory}
+-            key={`pile${index}`}
+-          />
+-        ))}
++      <div className={styles.tableauArea}>
++        <div className={styles.board}>
++          {game.decks.slice(0, 10).map((deck, index) => (
++            <CardHolder
++              deck={deck}
++              game={game}
++              deckIndex={index}
++              setGame={updateGameWithHistory}
++              isInteractionLocked={isInteractionLocked}
++              interactionLockVersion={interactionLockVersion}
++              key={`pile${index}`}
++            />
++          ))}
++        </div>
++        <CardBoardBottom
++          game={game}
++          setGame={updateGameWithHistory}
++          stockDecks={game.decks.slice(10)}
++          isInteractionLocked={isInteractionLocked}
++        />
++        {gameStatus === "paused" && (
++          <div className={styles.pauseOverlay}>
++            <div className={styles.pauseLabel}>Paused</div>
++          </div>
++        )}
+       </div>
+-      <CardBoardBottom
+-        game={game}
+-        setGame={updateGameWithHistory}
+-        stockDecks={game.decks.slice(10)}
+-      />
+     </div>
+   );
+ };
+diff --git a/src/ui/CardBoardBottom.tsx b/src/ui/CardBoardBottom.tsx
+index 6ee89c5..3f1c067 100644
+--- a/src/ui/CardBoardBottom.tsx
++++ b/src/ui/CardBoardBottom.tsx
+@@ -7,12 +7,14 @@ interface CardBoardBottomProps {
+   game: GameState;
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   stockDecks: Card[][];
++  isInteractionLocked: boolean;
+ }
+ 
+ const CardBoardBottom: React.FC<CardBoardBottomProps> = ({
+   game,
+   setGame,
+   stockDecks,
++  isInteractionLocked,
+ }) => {
+   return (
+     <div className={styles.bottomCardBoard}>
+@@ -23,6 +25,7 @@ const CardBoardBottom: React.FC<CardBoardBottomProps> = ({
+           setGame={setGame}
+           deck={stockDeck}
+           index={index}
++          isInteractionLocked={isInteractionLocked}
+         />
+       ))}
+     </div>
+diff --git a/src/ui/CardHolder.tsx b/src/ui/CardHolder.tsx
+index 85554ff..1dcf2ff 100644
+--- a/src/ui/CardHolder.tsx
++++ b/src/ui/CardHolder.tsx
+@@ -8,6 +8,8 @@ interface CardHolderProps {
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   deck: CardType[];
+   deckIndex: number;
++  isInteractionLocked: boolean;
++  interactionLockVersion: number;
+ }
+ 
+ const CardHolder: React.FC<CardHolderProps> = ({
+@@ -15,6 +17,8 @@ const CardHolder: React.FC<CardHolderProps> = ({
+   setGame,
+   deck,
+   deckIndex,
++  isInteractionLocked,
++  interactionLockVersion,
+ }) => {
+   const validCards = deck.filter((card) => card && card.rank);
+ 
+@@ -24,10 +28,12 @@ const CardHolder: React.FC<CardHolderProps> = ({
+     <div
+       className={`${styles.cardHolder} cardHolder${isEmpty ? ` ${styles.emptyColumn}` : ""}`}
+       onDragOver={(e) => {
++        if (isInteractionLocked) return;
+         e.preventDefault();
+         e.stopPropagation();
+       }}
+       onDrop={(e) => {
++        if (isInteractionLocked) return;
+         e.preventDefault();
+         e.stopPropagation();
+       }}
+@@ -44,6 +50,8 @@ const CardHolder: React.FC<CardHolderProps> = ({
+           deckIndex={deckIndex}
+           game={game}
+           setGame={setGame}
++          isInteractionLocked={isInteractionLocked}
++          interactionLockVersion={interactionLockVersion}
+         />
+       ))}
+     </div>
+diff --git a/src/ui/Header.tsx b/src/ui/Header.tsx
+index 4315628..10369fc 100644
+--- a/src/ui/Header.tsx
++++ b/src/ui/Header.tsx
+@@ -1,47 +1,33 @@
+-import React, { useState, useEffect } from "react";
++import React from "react";
+ import styles from "../styles/Header.module.css";
++import type { GameStatus } from "../types/game";
+ 
+ interface HeaderProps {
+   completed: number;
+   moveCount: number;
+-  onNewGame: () => void;
++  timerSeconds: number;
++  status: GameStatus;
++  onNewGame: () => void | Promise<void>;
++  onTogglePause: () => void;
+   onUndo?: () => void;
+   onHint?: () => void;
+   canUndo?: boolean;
+-  /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
+-  sessionKey?: number;
+ }
+ 
+ const Header: React.FC<HeaderProps> = ({
+   completed,
+   moveCount,
++  timerSeconds,
++  status,
+   onNewGame,
++  onTogglePause,
+   onUndo,
+   onHint,
+   canUndo = false,
+-  sessionKey = 0,
+ }) => {
+-  const [timer, setTimer] = useState<number>(0);
+-  const [isRunning, setIsRunning] = useState<boolean>(true);
+-
+-  useEffect(() => {
+-    let interval: number;
+-    if (isRunning) {
+-      interval = setInterval(() => {
+-        setTimer((prev) => prev + 1);
+-      }, 1000);
+-    }
+-    return () => clearInterval(interval);
+-  }, [isRunning]);
+-
+-  useEffect(() => {
+-    if (completed === 8) setIsRunning(false);
+-  }, [completed]);
+-
+-  useEffect(() => {
+-    setTimer(0);
+-    setIsRunning(true);
+-  }, [sessionKey]);
++  const isGameCompleted = status === "won" || completed === 8;
++  const isPaused = status === "paused";
++  const areGameActionsDisabled = status !== "running";
+ 
+   const formatTime = (seconds: number): string => {
+     const hours = Math.floor(seconds / 3600);
+@@ -55,31 +41,28 @@ const Header: React.FC<HeaderProps> = ({
+     return `${minutes}:${secs.toString().padStart(2, "0")}`;
+   };
+ 
+-  const handleNewGame = (): void => {
+-    setTimer(0);
+-    setIsRunning(true);
+-    onNewGame();
+-  };
+-
+-  const isGameCompleted = completed === 8;
+-
+   return (
+     <div className={styles.header}>
+       <div className={styles.leftSection}>
+-        <button type="button" className={styles.btn} onClick={handleNewGame}>
++        <button type="button" className={styles.btn} onClick={() => void onNewGame()}>
+           🎮 New Game
+         </button>
+         <button
+           type="button"
+           className={`${styles.btn} ${styles.undoBtn} ${
+-            !canUndo ? styles.disabled : ""
++            !canUndo || areGameActionsDisabled ? styles.disabled : ""
+           }`}
+           onClick={() => onUndo?.()}
+-          disabled={!canUndo}
++          disabled={!canUndo || areGameActionsDisabled}
+         >
+           ↩️ Undo
+         </button>
+-        <button type="button" className={styles.btn} onClick={() => onHint?.()}>
++        <button
++          type="button"
++          className={`${styles.btn} ${areGameActionsDisabled ? styles.disabled : ""}`}
++          onClick={() => onHint?.()}
++          disabled={areGameActionsDisabled}
++        >
+           💡 Hint
+         </button>
+       </div>
+@@ -101,7 +84,7 @@ const Header: React.FC<HeaderProps> = ({
+           </div>
+           <div className={styles.statItem}>
+             <span className={styles.statLabel}>Time:</span>
+-            <span className={styles.statValue}>{formatTime(timer)}</span>
++            <span className={styles.statValue}>{formatTime(timerSeconds)}</span>
+           </div>
+         </div>
+       </div>
+@@ -109,10 +92,11 @@ const Header: React.FC<HeaderProps> = ({
+         <button
+           type="button"
+           className={`${styles.btn} ${styles.iconBtn}`}
+-          onClick={() => setIsRunning(!isRunning)}
+-          title={isRunning ? "Pause Timer" : "Resume Timer"}
++          onClick={onTogglePause}
++          disabled={isGameCompleted}
++          title={isPaused ? "Resume Game" : "Pause Game"}
+         >
+-          {isRunning ? "⏸️" : "▶️"}
++          {isPaused ? "▶️" : "⏸️"}
+         </button>
+       </div>
+     </div>
+diff --git a/src/ui/StockCards.tsx b/src/ui/StockCards.tsx
+index e1a6645..860abe2 100644
+--- a/src/ui/StockCards.tsx
++++ b/src/ui/StockCards.tsx
+@@ -7,6 +7,7 @@ interface StockCardsProps {
+   game: GameState;
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   deck: Card[];
++  isInteractionLocked: boolean;
+ }
+ 
+ const StockCards: React.FC<StockCardsProps> = ({
+@@ -14,6 +15,7 @@ const StockCards: React.FC<StockCardsProps> = ({
+   game,
+   setGame,
+   deck,
++  isInteractionLocked,
+ }) => {
+   const [isShown, setIsShown] = useState<boolean>(true);
+ 
+@@ -22,6 +24,7 @@ const StockCards: React.FC<StockCardsProps> = ({
+   }, [game.decks]);
+ 
+   const handleCardSplit = (): void => {
++    if (isInteractionLocked) return;
+     if (!deck || deck.length === 0) return;
+ 
+     const tempDecks = game.decks.map((col) => [...col]);
+@@ -57,17 +60,19 @@ const StockCards: React.FC<StockCardsProps> = ({
+           data-index={index.toString()}
+           data-stock-remaining={remainingStockPiles}
+           role="button"
+-          tabIndex={0}
++          tabIndex={isInteractionLocked ? -1 : 0}
+           title={`Deal one face-up card to each column (${deck.length} in this pile, ${remainingStockPiles} stock pile(s) left)`}
+           aria-label={`Deal row from stock pile ${index + 1}, ${deck.length} cards in pile`}
++          aria-disabled={isInteractionLocked}
+           onClick={handleCardSplit}
+           onKeyDown={(e) => {
++            if (isInteractionLocked) return;
+             if (e.key === "Enter" || e.key === " ") {
+               e.preventDefault();
+               handleCardSplit();
+             }
+           }}
+-          style={{ cursor: "pointer" }}
++          style={{ cursor: isInteractionLocked ? "default" : "pointer" }}
+         />
+       )}
+     </>
+diff --git a/src/utils/toaster.ts b/src/utils/toaster.ts
+index 2299732..1640a7c 100644
+--- a/src/utils/toaster.ts
++++ b/src/utils/toaster.ts
+@@ -24,6 +24,22 @@ export const showInfo = (message: string): void => {
+   });
+ };
+ 
++export const confirmNewGameWhilePaused = async (): Promise<boolean> => {
++  const result = await Swal.fire({
++    title: "Start a new game?",
++    text: "Your paused game will be reset and the pause state will be cleared.",
++    icon: "warning",
++    showCancelButton: true,
++    confirmButtonText: "Start New Game",
++    cancelButtonText: "Keep Paused Game",
++    confirmButtonColor: "#2d5a27",
++    cancelButtonColor: "#6c757d",
++    allowOutsideClick: false,
++  });
++
++  return result.isConfirmed;
++};
++
+ export const showWonPopup = (restart: () => void): void => {
+   Swal.fire({
+     title: "🎉 Congratulations! 🎉",
+diff --git a/tests/test/integration.test.tsx b/tests/test/integration.test.tsx
+index 7d02beb..2da5f3a 100644
+--- a/tests/test/integration.test.tsx
++++ b/tests/test/integration.test.tsx
+@@ -1,17 +1,9 @@
+-import { describe, it, expect, vi, beforeEach } from "vitest";
+-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
++import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
++import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
++import Swal from "sweetalert2";
++import CardBoard from "../../src/ui/CardBoard";
+ import { initiateGame } from "../../src/utils/game";
+ 
+-// Mock SweetAlert2
+-vi.mock("sweetalert2", () => ({
+-  default: {
+-    fire: vi.fn().mockResolvedValue({ isConfirmed: true }),
+-    confirm: vi.fn().mockResolvedValue({ isConfirmed: true }),
+-    alert: vi.fn().mockResolvedValue({ isConfirmed: true }),
+-  },
+-}));
+-
+-// Mock CSS modules
+ vi.mock("../../src/styles/Card.module.css", () => ({
+   default: {
+     card: "card-class",
+@@ -39,7 +31,10 @@ vi.mock("../../src/styles/Header.module.css", () => ({
+ 
+ vi.mock("../../src/styles/CardBoard.module.css", () => ({
+   default: {
+-    cardBoard: "card-board-class",
++    tableauArea: "tableau-area-class",
++    board: "card-board-class",
++    pauseOverlay: "pause-overlay-class",
++    pauseLabel: "pause-label-class",
+   },
+ }));
+ 
+@@ -52,90 +47,137 @@ vi.mock("../../src/styles/CardHolder.module.css", () => ({
+ 
+ vi.mock("../../src/styles/StockCards.module.css", () => ({
+   default: {
+-    stockCards: "stock-cards-class",
++    stockDeck: "stock-deck-class",
++  },
++}));
++
++vi.mock("../../src/styles/CardBoardBottom.module.css", () => ({
++  default: {
++    bottomCardBoard: "bottom-card-board-class",
+   },
+ }));
+ 
++const getStatValue = (label: string): string => {
++  const statItem = screen.getByText(label).closest("div");
++  if (!statItem) return "";
++  const spans = statItem.querySelectorAll("span");
++  return spans[1]?.textContent ?? "";
++};
++
+ describe("Game Integration Tests", () => {
+   beforeEach(() => {
+     vi.clearAllMocks();
+-    // Mock document.elementFromPoint
+-    document.elementFromPoint = vi.fn();
+-    // Mock document.querySelector
+-    document.querySelector = vi.fn();
++    vi.useFakeTimers();
++  });
++
++  afterEach(() => {
++    vi.useRealTimers();
+   });
+ 
+-  describe("Game Initialization", () => {
+-    it("should have correct card distribution on game start", () => {
+-      const game = initiateGame();
++  it("should have correct card distribution on game start", () => {
++    const game = initiateGame();
+ 
+-      expect(game.decks).toHaveLength(15);
++    expect(game.decks).toHaveLength(15);
+ 
+-      // First 4 columns should have 6 cards each
+-      for (let i = 0; i < 4; i++) {
+-        expect(game.decks[i]).toHaveLength(6);
+-      }
++    for (let i = 0; i < 4; i++) {
++      expect(game.decks[i]).toHaveLength(6);
++    }
+ 
+-      // Next 6 columns should have 5 cards each
+-      for (let i = 4; i < 10; i++) {
+-        expect(game.decks[i]).toHaveLength(5);
+-      }
++    for (let i = 4; i < 10; i++) {
++      expect(game.decks[i]).toHaveLength(5);
++    }
+ 
+-      // Stock piles should have 10 cards each
+-      for (let i = 10; i < 15; i++) {
+-        expect(game.decks[i]).toHaveLength(10);
+-      }
+-    });
++    for (let i = 10; i < 15; i++) {
++      expect(game.decks[i]).toHaveLength(10);
++    }
+   });
+ 
+-  describe("Game Logic", () => {
+-    it("should handle timer functionality", async () => {
+-      // Test timer logic without rendering full app
+-      const startTime = Date.now();
+-      const currentTime = Date.now();
+-      const elapsedSeconds = Math.floor((currentTime - startTime) / 1000);
++  it("should pause and resume the unified game clock", () => {
++    render(<CardBoard />);
+ 
+-      expect(elapsedSeconds).toBeGreaterThanOrEqual(0);
++    act(() => {
++      vi.advanceTimersByTime(3200);
+     });
++    expect(getStatValue("Time:")).toBe("0:03");
+ 
+-    it("should handle game state management", () => {
+-      const game = initiateGame();
++    fireEvent.click(screen.getByTitle("Pause Game"));
++    expect(screen.getByText("Paused")).toBeInTheDocument();
+ 
+-      // Test that game state is properly initialized
+-      expect(game.cards).toHaveLength(104);
+-      expect(game.decks).toHaveLength(15);
++    act(() => {
++      vi.advanceTimersByTime(5000);
++    });
++    expect(getStatValue("Time:")).toBe("0:03");
++
++    fireEvent.click(screen.getByTitle("Resume Game"));
+ 
+-      // Test that first 10 decks have face-up cards
+-      for (let i = 0; i < 10; i++) {
+-        if (game.decks[i].length > 0) {
+-          expect(game.decks[i][game.decks[i].length - 1].isDown).toBe(false);
+-        }
+-      }
++    act(() => {
++      vi.advanceTimersByTime(2100);
+     });
++    expect(getStatValue("Time:")).toBe("0:05");
++  });
++
++  it("should block stock dealing while paused", () => {
++    render(<CardBoard />);
++
++    fireEvent.click(screen.getByTitle("Pause Game"));
++    fireEvent.click(
++      screen.getByRole("button", { name: /Deal row from stock pile 1/i }),
++    );
++
++    expect(getStatValue("Moves:")).toBe("0");
+   });
+ 
+-  describe("Error Handling", () => {
+-    it("should handle missing callback functions gracefully", () => {
+-      // Test that the game utils don't crash with invalid inputs
+-      expect(() => {
+-        const game = initiateGame();
+-        expect(game).toBeDefined();
+-      }).not.toThrow();
++  it("should confirm and reset when starting a new game from paused state", async () => {
++    render(<CardBoard />);
++
++    act(() => {
++      vi.advanceTimersByTime(1400);
+     });
++    expect(getStatValue("Time:")).toBe("0:01");
++
++    fireEvent.click(screen.getByTitle("Pause Game"));
++    fireEvent.click(screen.getByText("🎮 New Game"));
++
++    await waitFor(() => {
++      expect(Swal.fire).toHaveBeenCalledWith(
++        expect.objectContaining({
++          title: "Start a new game?",
++          confirmButtonText: "Start New Game",
++        }),
++      );
++    });
++
++    await waitFor(() => {
++      expect(getStatValue("Time:")).toBe("0:00");
++    });
++
++    expect(screen.getByTitle("Pause Game")).toBeInTheDocument();
++    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+   });
+ 
+-  describe("Performance", () => {
+-    it("should initialize game without performance issues", () => {
+-      const startTime = performance.now();
++  it("should keep undo working while the game is running", () => {
++    render(<CardBoard />);
+ 
+-      const game = initiateGame();
++    fireEvent.click(
++      screen.getByRole("button", { name: /Deal row from stock pile 1/i }),
++    );
+ 
+-      const endTime = performance.now();
+-      const initTime = endTime - startTime;
++    expect(getStatValue("Moves:")).toBe("1");
+ 
+-      // Game initialization should complete within reasonable time (e.g., 50ms)
+-      expect(initTime).toBeLessThan(50);
+-      expect(game).toBeDefined();
+-    });
++    fireEvent.click(screen.getByText("↩️ Undo"));
++
++    expect(getStatValue("Moves:")).toBe("0");
++  });
++
++  it("should initialize game without performance issues", () => {
++    const startTime = performance.now();
++
++    const game = initiateGame();
++
++    const endTime = performance.now();
++    const initTime = endTime - startTime;
++
++    expect(initTime).toBeLessThan(50);
++    expect(game).toBeDefined();
+   });
+ });
+diff --git a/tests/ui/Card.test.tsx b/tests/ui/Card.test.tsx
+index 96d544e..55f15de 100644
+--- a/tests/ui/Card.test.tsx
++++ b/tests/ui/Card.test.tsx
+@@ -1,9 +1,8 @@
+-import { describe, it, expect, vi, beforeEach } from "vitest";
+-import { render, screen } from "@testing-library/react";
++import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
++import { render, fireEvent } from "@testing-library/react";
+ import Card from "../../src/ui/Card";
+ import type { GameState, Card as CardType } from "../../src/types/game";
+ 
+-// Mock the CSS module
+ vi.mock("../../src/styles/Card.module.css", () => ({
+   default: {
+     card: "card-class",
+@@ -21,7 +20,7 @@ const createMockGameState = (): GameState => ({
+       { rank: "J", isDown: false },
+     ],
+     [{ rank: "A", isDown: false }],
+-    [],
++    ...Array.from({ length: 13 }, () => []),
+   ],
+   completed: 0,
+   moveCount: 0,
+@@ -32,6 +31,8 @@ const renderCard = (props: {
+   index: number;
+   game: GameState;
+   deckIndex: number;
++  isInteractionLocked?: boolean;
++  interactionLockVersion?: number;
+ }) => {
+   return render(<Card {...props} setGame={mockSetGame} />);
+ };
+@@ -41,147 +42,171 @@ describe("Card Component", () => {
+     vi.clearAllMocks();
+   });
+ 
+-  describe("Rendering", () => {
+-    it("should render card with valid data", () => {
+-      const cardData: CardType = { rank: "K", isDown: false };
+-      const game = createMockGameState();
+-
+-      const { container } = renderCard({
+-        data: cardData,
+-        index: 0,
+-        game,
+-        deckIndex: 0,
+-      });
+-
+-      // Should render a div element
+-      expect(container.firstChild).toBeInTheDocument();
+-      expect(container.firstChild).toHaveClass("card-class");
+-    });
+-
+-    it("should render face-down card", () => {
+-      const cardData: CardType = { rank: "Q", isDown: true };
+-      const game = createMockGameState();
++  afterEach(() => {
++    document.body.innerHTML = "";
++  });
+ 
+-      const { container } = renderCard({
+-        data: cardData,
+-        index: 1,
+-        game,
+-        deckIndex: 0,
+-      });
++  it("should render card with valid data", () => {
++    const cardData: CardType = { rank: "K", isDown: false };
++    const game = createMockGameState();
+ 
+-      // Should render a div element
+-      expect(container.firstChild).toBeInTheDocument();
+-      expect(container.firstChild).toHaveClass("card-class");
++    const { container } = renderCard({
++      data: cardData,
++      index: 0,
++      game,
++      deckIndex: 0,
+     });
+ 
+-    it("should return null for invalid card data", () => {
+-      const invalidCardData = {} as CardType;
+-      const game = createMockGameState();
++    expect(container.firstChild).toBeInTheDocument();
++    expect(container.firstChild).toHaveClass("card-class");
++  });
+ 
+-      const { container } = renderCard({
+-        data: invalidCardData,
+-        index: 0,
+-        game,
+-        deckIndex: 0,
+-      });
++  it("should render face-down card", () => {
++    const cardData: CardType = { rank: "Q", isDown: true };
++    const game = createMockGameState();
+ 
+-      expect(container.firstChild).toBeNull();
++    const { container } = renderCard({
++      data: cardData,
++      index: 1,
++      game,
++      deckIndex: 0,
+     });
+-  });
+ 
+-  describe("Card Properties", () => {
+-    it("should handle different card ranks", () => {
+-      const cardData: CardType = { rank: "A", isDown: false };
+-      const game = createMockGameState();
++    expect(container.firstChild).toBeInTheDocument();
++    expect(container.firstChild).toHaveClass("card-class");
++  });
+ 
+-      const { container } = renderCard({
+-        data: cardData,
+-        index: 0,
+-        game,
+-        deckIndex: 1,
+-      });
++  it("should return null for invalid card data", () => {
++    const invalidCardData = {} as CardType;
++    const game = createMockGameState();
+ 
+-      // Should render successfully
+-      expect(container.firstChild).toBeInTheDocument();
++    const { container } = renderCard({
++      data: invalidCardData,
++      index: 0,
++      game,
++      deckIndex: 0,
+     });
+ 
+-    it("should handle number cards", () => {
+-      const cardData: CardType = { rank: "10", isDown: false };
+-      const game = createMockGameState();
+-
+-      const { container } = renderCard({
+-        data: cardData,
+-        index: 0,
+-        game,
+-        deckIndex: 2,
+-      });
++    expect(container.firstChild).toBeNull();
++  });
+ 
+-      // Should render successfully
+-      expect(container.firstChild).toBeInTheDocument();
++  it("should not be draggable when run is invalid from this card", () => {
++    const game: GameState = {
++      decks: [
++        [
++          { rank: "K", isDown: false },
++          { rank: "7", isDown: false },
++        ],
++        ...Array.from({ length: 14 }, () => []),
++      ],
++      completed: 0,
++      moveCount: 0,
++    };
++    const { container } = renderCard({
++      data: { rank: "K", isDown: false },
++      index: 0,
++      game,
++      deckIndex: 0,
+     });
+ 
+-    it("should not be draggable when run is invalid from this card", () => {
+-      const game: GameState = {
+-        decks: [
+-          [
+-            { rank: "K", isDown: false },
+-            { rank: "7", isDown: false },
+-          ],
+-          ...Array.from({ length: 14 }, () => []),
+-        ],
+-        completed: 0,
+-        moveCount: 0,
+-      };
+-      const { container } = renderCard({
+-        data: { rank: "K", isDown: false },
+-        index: 0,
+-        game,
+-        deckIndex: 0,
+-      });
+-      expect(container.firstChild).toHaveAttribute("draggable", "false");
++    expect(container.firstChild).toHaveAttribute("draggable", "false");
++  });
++
++  it("should be draggable for a valid descending run from this card", () => {
++    const game = createMockGameState();
++    const { container } = renderCard({
++      data: { rank: "K", isDown: false },
++      index: 0,
++      game,
++      deckIndex: 0,
+     });
+ 
+-    it("should be draggable for a valid descending run from this card", () => {
+-      const game = createMockGameState();
+-      const { container } = renderCard({
+-        data: { rank: "K", isDown: false },
+-        index: 0,
+-        game,
+-        deckIndex: 0,
+-      });
+-      expect(container.firstChild).toHaveAttribute("draggable", "true");
++    expect(container.firstChild).toHaveAttribute("draggable", "true");
++  });
++
++  it("should not be draggable while interactions are locked", () => {
++    const game = createMockGameState();
++    const { container } = renderCard({
++      data: { rank: "K", isDown: false },
++      index: 0,
++      game,
++      deckIndex: 0,
++      isInteractionLocked: true,
++      interactionLockVersion: 1,
+     });
++
++    expect(container.firstChild).toHaveAttribute("draggable", "false");
+   });
+ 
+-  describe("Edge Cases", () => {
+-    it("should handle empty rank", () => {
+-      const cardData: CardType = { rank: "", isDown: false };
+-      const game = createMockGameState();
++  it("should cancel a drag that crosses into paused state", () => {
++    const game = createMockGameState();
++    const targetHolder = document.createElement("div");
++    targetHolder.className = "cardHolder";
++    targetHolder.id = "2";
++    document.body.appendChild(targetHolder);
++    const elementFromPointSpy = vi
++      .spyOn(document, "elementFromPoint")
++      .mockReturnValue(targetHolder);
++
++    const { container, rerender } = render(
++      <Card
++        data={{ rank: "K", isDown: false }}
++        index={0}
++        game={game}
++        deckIndex={0}
++        setGame={mockSetGame}
++        isInteractionLocked={false}
++        interactionLockVersion={0}
++      />,
++    );
++
++    const card = container.firstChild as HTMLElement;
++
++    fireEvent.dragStart(card, { pageX: 10, pageY: 10 });
++
++    rerender(
++      <Card
++        data={{ rank: "K", isDown: false }}
++        index={0}
++        game={game}
++        deckIndex={0}
++        setGame={mockSetGame}
++        isInteractionLocked={true}
++        interactionLockVersion={1}
++      />,
++    );
++
++    fireEvent.dragEnd(card, { clientX: 20, clientY: 20 });
++
++    expect(mockSetGame).not.toHaveBeenCalled();
++    elementFromPointSpy.mockRestore();
++  });
+ 
+-      const { container } = renderCard({
+-        data: cardData,
+-        index: 0,
+-        game,
+-        deckIndex: 0,
+-      });
++  it("should handle empty rank", () => {
++    const cardData: CardType = { rank: "", isDown: false };
++    const game = createMockGameState();
+ 
+-      // Should handle empty rank gracefully
+-      expect(container.firstChild).toBeNull();
++    const { container } = renderCard({
++      data: cardData,
++      index: 0,
++      game,
++      deckIndex: 0,
+     });
+ 
+-    it("should handle undefined data", () => {
+-      const undefinedData = undefined as unknown as CardType;
+-      const game = createMockGameState();
++    expect(container.firstChild).toBeNull();
++  });
+ 
+-      const { container } = renderCard({
+-        data: undefinedData,
+-        index: 0,
+-        game,
+-        deckIndex: 0,
+-      });
++  it("should handle undefined data", () => {
++    const undefinedData = undefined as unknown as CardType;
++    const game = createMockGameState();
+ 
+-      // Should handle undefined data gracefully
+-      expect(container.firstChild).toBeNull();
++    const { container } = renderCard({
++      data: undefinedData,
++      index: 0,
++      game,
++      deckIndex: 0,
+     });
++
++    expect(container.firstChild).toBeNull();
+   });
+ });
+diff --git a/tests/ui/Header.test.tsx b/tests/ui/Header.test.tsx
+index 22132a9..07ffc8e 100644
+--- a/tests/ui/Header.test.tsx
++++ b/tests/ui/Header.test.tsx
+@@ -1,8 +1,9 @@
+-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+-import { render, screen, fireEvent, act } from "@testing-library/react";
++import { describe, it, expect, vi, beforeEach } from "vitest";
++import { render, screen, fireEvent } from "@testing-library/react";
++import type { ComponentProps } from "react";
+ import Header from "../../src/ui/Header";
++import type { GameStatus } from "../../src/types/game";
+ 
+-// Mock the CSS module
+ vi.mock("../../src/styles/Header.module.css", () => ({
+   default: {
+     header: "header-class",
+@@ -24,332 +25,118 @@ vi.mock("../../src/styles/Header.module.css", () => ({
+ const mockOnNewGame = vi.fn();
+ const mockOnUndo = vi.fn();
+ const mockOnHint = vi.fn();
++const mockOnTogglePause = vi.fn();
+ 
+-const renderHeader = (props = {}) => {
+-  const defaultProps = {
++const renderHeader = (props: Partial<ComponentProps<typeof Header>> = {}) => {
++  const defaultProps: ComponentProps<typeof Header> = {
+     completed: 0,
+     moveCount: 0,
++    timerSeconds: 0,
++    status: "running",
+     onNewGame: mockOnNewGame,
++    onTogglePause: mockOnTogglePause,
+     onUndo: mockOnUndo,
+     onHint: mockOnHint,
+     canUndo: false,
+-    ...props,
+   };
+ 
+-  return render(<Header {...defaultProps} />);
++  return render(<Header {...defaultProps} {...props} />);
+ };
+ 
+ describe("Header Component", () => {
+   beforeEach(() => {
+     vi.clearAllMocks();
+-    vi.useFakeTimers();
+   });
+ 
+-  afterEach(() => {
+-    vi.useRealTimers();
+-  });
+-
+-  describe("Rendering", () => {
+-    it("should render all buttons correctly", () => {
+-      renderHeader();
+-
+-      expect(screen.getByText("🎮 New Game")).toBeInTheDocument();
+-      expect(screen.getByText("↩️ Undo")).toBeInTheDocument();
+-      expect(screen.getByText("💡 Hint")).toBeInTheDocument();
+-      expect(screen.getByText("⏸️")).toBeInTheDocument();
+-    });
+-
+-    it("should display correct game statistics", () => {
+-      renderHeader({ completed: 3, moveCount: 15 });
+-
+-      expect(screen.getByText("Completed:")).toBeInTheDocument();
+-      expect(screen.getByText("3/8")).toBeInTheDocument();
+-      expect(screen.getByText("Moves:")).toBeInTheDocument();
+-      expect(screen.getByText("15")).toBeInTheDocument();
+-      expect(screen.getByText("Time:")).toBeInTheDocument();
+-    });
+-
+-    it("should show completed state when game is finished", () => {
+-      renderHeader({ completed: 8 });
+-
+-      expect(screen.getByText("8/8 🎉")).toBeInTheDocument();
+-    });
++  it("should render core stats", () => {
++    renderHeader({ completed: 3, moveCount: 12, timerSeconds: 125 });
+ 
+-    it("should disable undo button when canUndo is false", () => {
+-      renderHeader({ canUndo: false });
+-
+-      const undoButton = screen.getByText("↩️ Undo");
+-      expect(undoButton).toBeDisabled();
+-    });
+-
+-    it("should enable undo button when canUndo is true", () => {
+-      renderHeader({ canUndo: true });
+-
+-      const undoButton = screen.getByText("↩️ Undo");
+-      expect(undoButton).not.toBeDisabled();
+-    });
++    expect(screen.getByText("3/8")).toBeInTheDocument();
++    expect(screen.getByText("12")).toBeInTheDocument();
++    expect(screen.getByText("2:05")).toBeInTheDocument();
+   });
+ 
+-  describe("Timer Functionality", () => {
+-    it("should start timer when component mounts", () => {
+-      renderHeader();
+-
+-      expect(screen.getByText("0:00")).toBeInTheDocument();
+-
+-      act(() => {
+-        vi.advanceTimersByTime(1000);
+-      });
+-
+-      expect(screen.getByText("0:01")).toBeInTheDocument();
+-    });
+-
+-    it("should format time correctly for different durations", () => {
+-      renderHeader();
+-
+-      // Test 1 minute
+-      act(() => {
+-        vi.advanceTimersByTime(60000);
+-      });
+-      expect(screen.getByText("1:00")).toBeInTheDocument();
+-
+-      // Test 1 hour
+-      act(() => {
+-        vi.advanceTimersByTime(3600000);
+-      });
+-      expect(screen.getByText("1:01:00")).toBeInTheDocument();
+-    });
+-
+-    it("should pause timer when pause button is clicked", () => {
+-      renderHeader();
+-
+-      const pauseButton = screen.getByText("⏸️");
+-      fireEvent.click(pauseButton);
+-
+-      // Timer should show play button
+-      expect(screen.getByText("▶️")).toBeInTheDocument();
+-
+-      // Timer should not advance
+-      act(() => {
+-        vi.advanceTimersByTime(1000);
+-      });
+-      expect(screen.getByText("0:00")).toBeInTheDocument();
+-    });
+-
+-    it("should resume timer when play button is clicked", () => {
+-      renderHeader();
+-
+-      const pauseButton = screen.getByText("⏸️");
+-      fireEvent.click(pauseButton);
+-
+-      const playButton = screen.getByText("▶️");
+-      fireEvent.click(playButton);
+-
+-      // Timer should show pause button
+-      expect(screen.getByText("⏸️")).toBeInTheDocument();
+-
+-      // Timer should advance
+-      act(() => {
+-        vi.advanceTimersByTime(1000);
+-      });
+-      expect(screen.getByText("0:01")).toBeInTheDocument();
+-    });
+-
+-    it("should reset timer when new game is started", () => {
+-      renderHeader();
+-
+-      // Advance timer
+-      act(() => {
+-        vi.advanceTimersByTime(5000);
+-      });
+-      expect(screen.getByText("0:05")).toBeInTheDocument();
+-
+-      // Start new game
+-      const newGameButton = screen.getByText("🎮 New Game");
+-      fireEvent.click(newGameButton);
+-
+-      // Timer should reset
+-      expect(screen.getByText("0:00")).toBeInTheDocument();
+-    });
+-
+-    it("should pause timer when game is completed", () => {
+-      const { rerender } = render(
+-        <Header
+-          completed={0}
+-          moveCount={0}
+-          onNewGame={mockOnNewGame}
+-          onUndo={mockOnUndo}
+-          onHint={mockOnHint}
+-          canUndo={false}
+-        />,
+-      );
+-
+-      act(() => {
+-        vi.advanceTimersByTime(4000);
+-      });
+-      expect(screen.getByText("0:04")).toBeInTheDocument();
+-
+-      rerender(
+-        <Header
+-          completed={8}
+-          moveCount={0}
+-          onNewGame={mockOnNewGame}
+-          onUndo={mockOnUndo}
+-          onHint={mockOnHint}
+-          canUndo={false}
+-        />,
+-      );
+-
+-      act(() => {
+-        vi.advanceTimersByTime(10000);
+-      });
+-      expect(screen.getByText("0:04")).toBeInTheDocument();
+-    });
+-
+-    it("should reset timer when sessionKey changes", () => {
+-      const { rerender } = render(
+-        <Header
+-          completed={0}
+-          moveCount={0}
+-          onNewGame={mockOnNewGame}
+-          sessionKey={1}
+-        />,
+-      );
+-
+-      act(() => {
+-        vi.advanceTimersByTime(8000);
+-      });
+-      expect(screen.getByText("0:08")).toBeInTheDocument();
+-
+-      rerender(
+-        <Header
+-          completed={0}
+-          moveCount={0}
+-          onNewGame={mockOnNewGame}
+-          sessionKey={2}
+-        />,
+-      );
+-
+-      expect(screen.getByText("0:00")).toBeInTheDocument();
+-    });
+-  });
+-
+-  describe("Button Interactions", () => {
+-    it("should call onNewGame when new game button is clicked", () => {
+-      renderHeader();
+-
+-      const newGameButton = screen.getByText("🎮 New Game");
+-      fireEvent.click(newGameButton);
+-
+-      expect(mockOnNewGame).toHaveBeenCalledTimes(1);
+-    });
++  it("should format long timer durations", () => {
++    renderHeader({ timerSeconds: 9000 });
+ 
+-    it("should call onUndo when undo button is clicked and enabled", () => {
+-      renderHeader({ canUndo: true });
+-
+-      const undoButton = screen.getByText("↩️ Undo");
+-      fireEvent.click(undoButton);
+-
+-      expect(mockOnUndo).toHaveBeenCalledTimes(1);
+-    });
++    expect(screen.getByText("2:30:00")).toBeInTheDocument();
++  });
+ 
+-    it("should not call onUndo when undo button is disabled", () => {
+-      renderHeader({ canUndo: false });
++  it("should call onNewGame when new game button is clicked", () => {
++    renderHeader();
+ 
+-      const undoButton = screen.getByText("↩️ Undo");
+-      fireEvent.click(undoButton);
++    fireEvent.click(screen.getByText("🎮 New Game"));
+ 
+-      expect(mockOnUndo).not.toHaveBeenCalled();
+-    });
++    expect(mockOnNewGame).toHaveBeenCalledTimes(1);
++  });
+ 
+-    it("should call onHint when hint button is clicked", () => {
+-      renderHeader();
++  it("should call onUndo when enabled", () => {
++    renderHeader({ canUndo: true });
+ 
+-      const hintButton = screen.getByText("💡 Hint");
+-      fireEvent.click(hintButton);
++    fireEvent.click(screen.getByText("↩️ Undo"));
+ 
+-      expect(mockOnHint).toHaveBeenCalledTimes(1);
+-    });
++    expect(mockOnUndo).toHaveBeenCalledTimes(1);
++  });
+ 
+-    it("should toggle timer pause/resume when pause button is clicked", () => {
+-      renderHeader();
++  it("should disable undo and hint while paused", () => {
++    renderHeader({ status: "paused", canUndo: true });
+ 
+-      const pauseButton = screen.getByText("⏸️");
++    const undoButton = screen.getByText("↩️ Undo");
++    const hintButton = screen.getByText("💡 Hint");
+ 
+-      // Initial state should be pause button
+-      expect(pauseButton).toBeInTheDocument();
++    expect(undoButton).toBeDisabled();
++    expect(hintButton).toBeDisabled();
+ 
+-      // Click to pause
+-      fireEvent.click(pauseButton);
+-      expect(screen.getByText("▶️")).toBeInTheDocument();
++    fireEvent.click(undoButton);
++    fireEvent.click(hintButton);
+ 
+-      // Click to resume
+-      fireEvent.click(screen.getByText("▶️"));
+-      expect(screen.getByText("⏸️")).toBeInTheDocument();
+-    });
++    expect(mockOnUndo).not.toHaveBeenCalled();
++    expect(mockOnHint).not.toHaveBeenCalled();
+   });
+ 
+-  describe("Accessibility", () => {
+-    it("should have proper title attribute for pause button", () => {
+-      renderHeader();
+-
+-      const pauseButton = screen.getByText("⏸️");
+-      expect(pauseButton).toHaveAttribute("title", "Pause Timer");
+-    });
+-
+-    it("should have proper title attribute for play button", () => {
+-      renderHeader();
++  it("should call onTogglePause while running", () => {
++    renderHeader({ status: "running" });
+ 
+-      const pauseButton = screen.getByText("⏸️");
+-      fireEvent.click(pauseButton);
++    const pauseButton = screen.getByTitle("Pause Game");
++    fireEvent.click(pauseButton);
+ 
+-      const playButton = screen.getByText("▶️");
+-      expect(playButton).toHaveAttribute("title", "Resume Timer");
+-    });
+-
+-    it("should have proper disabled state for undo button", () => {
+-      renderHeader({ canUndo: false });
+-
+-      const undoButton = screen.getByText("↩️ Undo");
+-      expect(undoButton).toBeDisabled();
+-    });
++    expect(mockOnTogglePause).toHaveBeenCalledTimes(1);
++    expect(screen.getByText("⏸️")).toBeInTheDocument();
+   });
+ 
+-  describe("Edge Cases", () => {
+-    it("should handle undefined callback props gracefully", () => {
+-      render(<Header completed={0} moveCount={0} onNewGame={mockOnNewGame} />);
++  it("should show resume button while paused", () => {
++    renderHeader({ status: "paused" });
+ 
+-      // Should not throw errors when optional callbacks are undefined
+-      const undoButton = screen.getByText("↩️ Undo");
+-      const hintButton = screen.getByText("💡 Hint");
++    expect(screen.getByTitle("Resume Game")).toBeInTheDocument();
++    expect(screen.getByText("▶️")).toBeInTheDocument();
++  });
+ 
+-      fireEvent.click(undoButton);
+-      fireEvent.click(hintButton);
++  it("should disable pause toggle after the game is won", () => {
++    renderHeader({ status: "won", completed: 8 });
+ 
+-      // Should not crash
+-      expect(screen.getByText("↩️ Undo")).toBeInTheDocument();
+-    });
++    const pauseButton = screen.getByText("⏸️");
++    expect(pauseButton).toBeDisabled();
++    expect(screen.getByText("8/8 🎉")).toBeInTheDocument();
++  });
+ 
+-    it("should handle large move counts", () => {
+-      renderHeader({ moveCount: 999999 });
++  it("should handle undefined optional callbacks gracefully", () => {
++    renderHeader({ onUndo: undefined, onHint: undefined, canUndo: true });
+ 
+-      expect(screen.getByText("999999")).toBeInTheDocument();
+-    });
++    fireEvent.click(screen.getByText("↩️ Undo"));
++    fireEvent.click(screen.getByText("💡 Hint"));
+ 
+-    it("should handle large completed counts", () => {
+-      renderHeader({ completed: 10 });
++    expect(screen.getByText("↩️ Undo")).toBeInTheDocument();
++  });
+ 
+-      expect(screen.getByText("10/8")).toBeInTheDocument();
+-    });
++  it("should keep undo disabled when canUndo is false", () => {
++    renderHeader({ status: "running", canUndo: false });
+ 
+-    it("should handle very long timer durations", () => {
+-      renderHeader();
++    expect(screen.getByText("↩️ Undo")).toBeDisabled();
++  });
+ 
+-      // Advance to 2 hours and 30 minutes
+-      act(() => {
+-        vi.advanceTimersByTime(9000000); // 2.5 hours in milliseconds
+-      });
++  it("should render large completed counts", () => {
++    renderHeader({ completed: 10, status: "won" as GameStatus });
+ 
+-      expect(screen.getByText("2:30:00")).toBeInTheDocument();
+-    });
++    expect(screen.getByText("10/8 🎉")).toBeInTheDocument();
+   });
+ });

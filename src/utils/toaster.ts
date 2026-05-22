@@ -24,6 +24,22 @@ export const showInfo = (message: string): void => {
   });
 };
 
+export const confirmNewGameWhilePaused = async (): Promise<boolean> => {
+  const result = await Swal.fire({
+    title: "Start a new game?",
+    text: "Your paused game will be reset and the pause state will be cleared.",
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText: "Start New Game",
+    cancelButtonText: "Keep Paused Game",
+    confirmButtonColor: "#2d5a27",
+    cancelButtonColor: "#6c757d",
+    allowOutsideClick: false,
+  });
+
+  return result.isConfirmed;
+};
+
 export const showWonPopup = (restart: () => void): void => {
   Swal.fire({
     title: "🎉 Congratulations! 🎉",

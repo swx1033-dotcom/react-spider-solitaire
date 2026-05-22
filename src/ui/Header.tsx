@@ -1,47 +1,33 @@
-import React, { useState, useEffect } from "react";
+import React from "react";
 import styles from "../styles/Header.module.css";
+import type { GameStatus } from "../types/game";
 
 interface HeaderProps {
   completed: number;
   moveCount: number;
-  onNewGame: () => void;
+  timerSeconds: number;
+  status: GameStatus;
+  onNewGame: () => void | Promise<void>;
+  onTogglePause: () => void;
   onUndo?: () => void;
   onHint?: () => void;
   canUndo?: boolean;
-  /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
-  sessionKey?: number;
 }
 
 const Header: React.FC<HeaderProps> = ({
   completed,
   moveCount,
+  timerSeconds,
+  status,
   onNewGame,
+  onTogglePause,
   onUndo,
   onHint,
   canUndo = false,
-  sessionKey = 0,
 }) => {
-  const [timer, setTimer] = useState<number>(0);
-  const [isRunning, setIsRunning] = useState<boolean>(true);
-
-  useEffect(() => {
-    let interval: number;
-    if (isRunning) {
-      interval = setInterval(() => {
-        setTimer((prev) => prev + 1);
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [isRunning]);
-
-  useEffect(() => {
-    if (completed === 8) setIsRunning(false);
-  }, [completed]);
-
-  useEffect(() => {
-    setTimer(0);
-    setIsRunning(true);
-  }, [sessionKey]);
+  const isGameCompleted = status === "won" || completed === 8;
+  const isPaused = status === "paused";
+  const areGameActionsDisabled = status !== "running";
 
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -55,31 +41,28 @@ const Header: React.FC<HeaderProps> = ({
     return `${minutes}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const handleNewGame = (): void => {
-    setTimer(0);
-    setIsRunning(true);
-    onNewGame();
-  };
-
-  const isGameCompleted = completed === 8;
-
   return (
     <div className={styles.header}>
       <div className={styles.leftSection}>
-        <button type="button" className={styles.btn} onClick={handleNewGame}>
+        <button type="button" className={styles.btn} onClick={() => void onNewGame()}>
           🎮 New Game
         </button>
         <button
           type="button"
           className={`${styles.btn} ${styles.undoBtn} ${
-            !canUndo ? styles.disabled : ""
+            !canUndo || areGameActionsDisabled ? styles.disabled : ""
           }`}
           onClick={() => onUndo?.()}
-          disabled={!canUndo}
+          disabled={!canUndo || areGameActionsDisabled}
         >
           ↩️ Undo
         </button>
-        <button type="button" className={styles.btn} onClick={() => onHint?.()}>
+        <button
+          type="button"
+          className={`${styles.btn} ${areGameActionsDisabled ? styles.disabled : ""}`}
+          onClick={() => onHint?.()}
+          disabled={areGameActionsDisabled}
+        >
           💡 Hint
         </button>
       </div>
@@ -101,7 +84,7 @@ const Header: React.FC<HeaderProps> = ({
           </div>
           <div className={styles.statItem}>
             <span className={styles.statLabel}>Time:</span>
-            <span className={styles.statValue}>{formatTime(timer)}</span>
+            <span className={styles.statValue}>{formatTime(timerSeconds)}</span>
           </div>
         </div>
       </div>
@@ -109,10 +92,11 @@ const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           className={`${styles.btn} ${styles.iconBtn}`}
-          onClick={() => setIsRunning(!isRunning)}
-          title={isRunning ? "Pause Timer" : "Resume Timer"}
+          onClick={onTogglePause}
+          disabled={isGameCompleted}
+          title={isPaused ? "Resume Game" : "Pause Game"}
         >
-          {isRunning ? "⏸️" : "▶️"}
+          {isPaused ? "▶️" : "⏸️"}
         </button>
       </div>
     </div>

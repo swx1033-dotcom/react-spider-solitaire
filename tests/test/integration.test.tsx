@@ -1,17 +1,9 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { render, screen, fireEvent, waitFor, act } from "@testing-library/react";
+import Swal from "sweetalert2";
+import CardBoard from "../../src/ui/CardBoard";
 import { initiateGame } from "../../src/utils/game";
 
-// Mock SweetAlert2
-vi.mock("sweetalert2", () => ({
-  default: {
-    fire: vi.fn().mockResolvedValue({ isConfirmed: true }),
-    confirm: vi.fn().mockResolvedValue({ isConfirmed: true }),
-    alert: vi.fn().mockResolvedValue({ isConfirmed: true }),
-  },
-}));
-
-// Mock CSS modules
 vi.mock("../../src/styles/Card.module.css", () => ({
   default: {
     card: "card-class",
@@ -39,7 +31,10 @@ vi.mock("../../src/styles/Header.module.css", () => ({
 
 vi.mock("../../src/styles/CardBoard.module.css", () => ({
   default: {
-    cardBoard: "card-board-class",
+    tableauArea: "tableau-area-class",
+    board: "card-board-class",
+    pauseOverlay: "pause-overlay-class",
+    pauseLabel: "pause-label-class",
   },
 }));
 
@@ -52,90 +47,137 @@ vi.mock("../../src/styles/CardHolder.module.css", () => ({
 
 vi.mock("../../src/styles/StockCards.module.css", () => ({
   default: {
-    stockCards: "stock-cards-class",
+    stockDeck: "stock-deck-class",
   },
 }));
+
+vi.mock("../../src/styles/CardBoardBottom.module.css", () => ({
+  default: {
+    bottomCardBoard: "bottom-card-board-class",
+  },
+}));
+
+const getStatValue = (label: string): string => {
+  const statItem = screen.getByText(label).closest("div");
+  if (!statItem) return "";
+  const spans = statItem.querySelectorAll("span");
+  return spans[1]?.textContent ?? "";
+};
 
 describe("Game Integration Tests", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // Mock document.elementFromPoint
-    document.elementFromPoint = vi.fn();
-    // Mock document.querySelector
-    document.querySelector = vi.fn();
+    vi.useFakeTimers();
   });
 
-  describe("Game Initialization", () => {
-    it("should have correct card distribution on game start", () => {
-      const game = initiateGame();
-
-      expect(game.decks).toHaveLength(15);
-
-      // First 4 columns should have 6 cards each
-      for (let i = 0; i < 4; i++) {
-        expect(game.decks[i]).toHaveLength(6);
-      }
-
-      // Next 6 columns should have 5 cards each
-      for (let i = 4; i < 10; i++) {
-        expect(game.decks[i]).toHaveLength(5);
-      }
-
-      // Stock piles should have 10 cards each
-      for (let i = 10; i < 15; i++) {
-        expect(game.decks[i]).toHaveLength(10);
-      }
-    });
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
-  describe("Game Logic", () => {
-    it("should handle timer functionality", async () => {
-      // Test timer logic without rendering full app
-      const startTime = Date.now();
-      const currentTime = Date.now();
-      const elapsedSeconds = Math.floor((currentTime - startTime) / 1000);
+  it("should have correct card distribution on game start", () => {
+    const game = initiateGame();
 
-      expect(elapsedSeconds).toBeGreaterThanOrEqual(0);
-    });
+    expect(game.decks).toHaveLength(15);
 
-    it("should handle game state management", () => {
-      const game = initiateGame();
+    for (let i = 0; i < 4; i++) {
+      expect(game.decks[i]).toHaveLength(6);
+    }
 
-      // Test that game state is properly initialized
-      expect(game.cards).toHaveLength(104);
-      expect(game.decks).toHaveLength(15);
+    for (let i = 4; i < 10; i++) {
+      expect(game.decks[i]).toHaveLength(5);
+    }
 
-      // Test that first 10 decks have face-up cards
-      for (let i = 0; i < 10; i++) {
-        if (game.decks[i].length > 0) {
-          expect(game.decks[i][game.decks[i].length - 1].isDown).toBe(false);
-        }
-      }
-    });
+    for (let i = 10; i < 15; i++) {
+      expect(game.decks[i]).toHaveLength(10);
+    }
   });
 
-  describe("Error Handling", () => {
-    it("should handle missing callback functions gracefully", () => {
-      // Test that the game utils don't crash with invalid inputs
-      expect(() => {
-        const game = initiateGame();
-        expect(game).toBeDefined();
-      }).not.toThrow();
+  it("should pause and resume the unified game clock", () => {
+    render(<CardBoard />);
+
+    act(() => {
+      vi.advanceTimersByTime(3200);
     });
+    expect(getStatValue("Time:")).toBe("0:03");
+
+    fireEvent.click(screen.getByTitle("Pause Game"));
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    expect(getStatValue("Time:")).toBe("0:03");
+
+    fireEvent.click(screen.getByTitle("Resume Game"));
+
+    act(() => {
+      vi.advanceTimersByTime(2100);
+    });
+    expect(getStatValue("Time:")).toBe("0:05");
   });
 
-  describe("Performance", () => {
-    it("should initialize game without performance issues", () => {
-      const startTime = performance.now();
+  it("should block stock dealing while paused", () => {
+    render(<CardBoard />);
 
-      const game = initiateGame();
+    fireEvent.click(screen.getByTitle("Pause Game"));
+    fireEvent.click(
+      screen.getByRole("button", { name: /Deal row from stock pile 1/i }),
+    );
 
-      const endTime = performance.now();
-      const initTime = endTime - startTime;
+    expect(getStatValue("Moves:")).toBe("0");
+  });
 
-      // Game initialization should complete within reasonable time (e.g., 50ms)
-      expect(initTime).toBeLessThan(50);
-      expect(game).toBeDefined();
+  it("should confirm and reset when starting a new game from paused state", async () => {
+    render(<CardBoard />);
+
+    act(() => {
+      vi.advanceTimersByTime(1400);
     });
+    expect(getStatValue("Time:")).toBe("0:01");
+
+    fireEvent.click(screen.getByTitle("Pause Game"));
+    fireEvent.click(screen.getByText("🎮 New Game"));
+
+    await waitFor(() => {
+      expect(Swal.fire).toHaveBeenCalledWith(
+        expect.objectContaining({
+          title: "Start a new game?",
+          confirmButtonText: "Start New Game",
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(getStatValue("Time:")).toBe("0:00");
+    });
+
+    expect(screen.getByTitle("Pause Game")).toBeInTheDocument();
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+  });
+
+  it("should keep undo working while the game is running", () => {
+    render(<CardBoard />);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: /Deal row from stock pile 1/i }),
+    );
+
+    expect(getStatValue("Moves:")).toBe("1");
+
+    fireEvent.click(screen.getByText("↩️ Undo"));
+
+    expect(getStatValue("Moves:")).toBe("0");
+  });
+
+  it("should initialize game without performance issues", () => {
+    const startTime = performance.now();
+
+    const game = initiateGame();
+
+    const endTime = performance.now();
+    const initTime = endTime - startTime;
+
+    expect(initTime).toBeLessThan(50);
+    expect(game).toBeDefined();
   });
 });

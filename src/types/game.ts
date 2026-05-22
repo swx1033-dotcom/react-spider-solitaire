@@ -15,6 +15,8 @@ export interface GameInit {
   cards: Card[];
 }
 
+export type GameStatus = "running" | "paused" | "won";
+
 export type CardRank =
   | "A"
   | "2"

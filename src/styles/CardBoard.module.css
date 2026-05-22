@@ -1,3 +1,7 @@
+.tableauArea {
+  position: relative;
+}
+
 .board {
   background-color: seagreen;
   height: 65vh;
@@ -5,4 +9,26 @@
   align-items: flex-start;
   justify-content: space-evenly;
   box-sizing: border-box;
+}
+
+.pauseOverlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(5, 37, 18, 0.45);
+  backdrop-filter: blur(2px);
+  z-index: 1000;
+}
+
+.pauseLabel {
+  padding: 16px 28px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.92);
+  color: #1f5132;
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
