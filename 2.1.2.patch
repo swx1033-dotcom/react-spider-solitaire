@@ -1,0 +1,155 @@
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..c3cade3 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -1,10 +1,11 @@
+ import React, { useState, useEffect, useRef } from "react";
++import _ from "lodash";
+ import { initiateGame, findGameHint } from "../utils/game";
+ import CardHolder from "./CardHolder";
+ import styles from "../styles/CardBoard.module.css";
+ import Header from "./Header";
+ import CardBoardBottom from "./CardBoardBottom";
+-import { GameState } from "../types/game";
++import { GameState, Card } from "../types/game";
+ import { showInfo, showWonPopup } from "../utils/toaster";
+ 
+ const cloneGameState = (g: GameState): GameState => ({
+@@ -22,7 +23,9 @@ const CardBoard: React.FC = () => {
+   const [, setGameHistory] = useState<GameState[]>([]);
+   const [canUndo, setCanUndo] = useState<boolean>(false);
+   const [gameKey, setGameKey] = useState<number>(0);
++  const [shufflesRemaining, setShufflesRemaining] = useState<number>(3);
+   const winPopupScheduledRef = useRef(false);
++  const stuckPromptedRef = useRef(false);
+ 
+   useEffect(() => {
+     startNewGame();
+@@ -54,6 +57,8 @@ const CardBoard: React.FC = () => {
+     setGame(newGameState);
+     setGameHistory([]);
+     setCanUndo(false);
++    setShufflesRemaining(3);
++    stuckPromptedRef.current = false;
+     setGameKey((prev) => prev + 1);
+   };
+ 
+@@ -63,10 +68,67 @@ const CardBoard: React.FC = () => {
+       const previousState = prev[prev.length - 1];
+       setGame(previousState);
+       setCanUndo(prev.length - 1 > 0);
++      stuckPromptedRef.current = false;
+       return prev.slice(0, -1);
+     });
+   };
+ 
++  const handleShuffle = (): void => {
++    if (shufflesRemaining <= 0) return;
++    setShufflesRemaining((prev) => prev - 1);
++    
++    setGame((prev) => {
++      const tableCards: Card[] = [];
++      const colCounts: number[] = [];
++      for (let i = 0; i < 10; i++) {
++        colCounts.push(prev.decks[i]?.length || 0);
++        const col = prev.decks[i] || [];
++        for (const c of col) {
++          tableCards.push({ ...c, isDown: false });
++        }
++      }
++      
++      const shuffledCards = _.shuffle(tableCards);
++      const newDecks = [...prev.decks];
++      let cardIdx = 0;
++      for (let i = 0; i < 10; i++) {
++        newDecks[i] = shuffledCards.slice(cardIdx, cardIdx + colCounts[i]);
++        cardIdx += colCounts[i];
++      }
++      
++      return {
++        ...prev,
++        decks: newDecks,
++        moveCount: prev.moveCount + 1,
++      };
++    });
++    
++    setGameHistory([]);
++    setCanUndo(false);
++    stuckPromptedRef.current = false;
++  };
++
++  useEffect(() => {
++    if (game.completed >= 8) return;
++    if (game.decks.length === 0) return;
++    
++    const hint = findGameHint(game.decks);
++    if (hint.kind !== "stuck") {
++      stuckPromptedRef.current = false;
++    } else if (hint.kind === "stuck" && !stuckPromptedRef.current) {
++      stuckPromptedRef.current = true;
++      const t = window.setTimeout(() => {
++        if (shufflesRemaining > 0) {
++          const wantsShuffle = window.confirm("无可用移动，是否重新洗牌并保留当前进度？");
++          if (wantsShuffle) {
++            handleShuffle();
++          }
++        }
++      }, 100);
++      return () => window.clearTimeout(t);
++    }
++  }, [game.decks, game.completed, shufflesRemaining]);
++
+   const handleHint = (): void => {
+     showInfo(findGameHint(game.decks).text);
+   };
+@@ -90,7 +152,9 @@ const CardBoard: React.FC = () => {
+         onNewGame={startNewGame}
+         onUndo={handleUndo}
+         onHint={handleHint}
++        onShuffle={handleShuffle}
+         canUndo={canUndo}
++        shufflesRemaining={shufflesRemaining}
+         sessionKey={gameKey}
+       />
+       <div className={styles.board}>
+diff --git a/src/ui/Header.tsx b/src/ui/Header.tsx
+index 4315628..416b524 100644
+--- a/src/ui/Header.tsx
++++ b/src/ui/Header.tsx
+@@ -7,7 +7,9 @@ interface HeaderProps {
+   onNewGame: () => void;
+   onUndo?: () => void;
+   onHint?: () => void;
++  onShuffle?: () => void;
+   canUndo?: boolean;
++  shufflesRemaining?: number;
+   /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
+   sessionKey?: number;
+ }
+@@ -18,7 +20,9 @@ const Header: React.FC<HeaderProps> = ({
+   onNewGame,
+   onUndo,
+   onHint,
++  onShuffle,
+   canUndo = false,
++  shufflesRemaining = 3,
+   sessionKey = 0,
+ }) => {
+   const [timer, setTimer] = useState<number>(0);
+@@ -82,6 +86,16 @@ const Header: React.FC<HeaderProps> = ({
+         <button type="button" className={styles.btn} onClick={() => onHint?.()}>
+           💡 Hint
+         </button>
++        <button
++          type="button"
++          className={`${styles.btn} ${
++            shufflesRemaining <= 0 ? styles.disabled : ""
++          }`}
++          onClick={() => onShuffle?.()}
++          disabled={shufflesRemaining <= 0}
++        >
++          🔀 洗牌 ({shufflesRemaining})
++        </button>
+       </div>
+       <div className={styles.centerSection}>
+         <div className={styles.stats}>
