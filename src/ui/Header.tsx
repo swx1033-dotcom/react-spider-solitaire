@@ -10,6 +10,8 @@ interface HeaderProps {
   canUndo?: boolean;
   /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
   sessionKey?: number;
+  isPaused: boolean;
+  onTogglePause: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -20,9 +22,12 @@ const Header: React.FC<HeaderProps> = ({
   onHint,
   canUndo = false,
   sessionKey = 0,
+  isPaused,
+  onTogglePause,
 }) => {
   const [timer, setTimer] = useState<number>(0);
-  const [isRunning, setIsRunning] = useState<boolean>(true);
+  const isGameCompleted = completed === 8;
+  const isRunning = !isPaused && !isGameCompleted;
 
   useEffect(() => {
     let interval: number;
@@ -35,12 +40,7 @@ const Header: React.FC<HeaderProps> = ({
   }, [isRunning]);
 
   useEffect(() => {
-    if (completed === 8) setIsRunning(false);
-  }, [completed]);
-
-  useEffect(() => {
     setTimer(0);
-    setIsRunning(true);
   }, [sessionKey]);
 
   const formatTime = (seconds: number): string => {
@@ -56,12 +56,9 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   const handleNewGame = (): void => {
-    setTimer(0);
-    setIsRunning(true);
+    // New game confirm if paused is handled in parent
     onNewGame();
   };
-
-  const isGameCompleted = completed === 8;
 
   return (
     <div className={styles.header}>
@@ -72,14 +69,19 @@ const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           className={`${styles.btn} ${styles.undoBtn} ${
-            !canUndo ? styles.disabled : ""
+            (!canUndo || isPaused) ? styles.disabled : ""
           }`}
           onClick={() => onUndo?.()}
-          disabled={!canUndo}
+          disabled={!canUndo || isPaused}
         >
           ↩️ Undo
         </button>
-        <button type="button" className={styles.btn} onClick={() => onHint?.()}>
+        <button 
+          type="button" 
+          className={`${styles.btn} ${isPaused ? styles.disabled : ""}`} 
+          onClick={() => onHint?.()}
+          disabled={isPaused}
+        >
           💡 Hint
         </button>
       </div>
@@ -109,10 +111,10 @@ const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           className={`${styles.btn} ${styles.iconBtn}`}
-          onClick={() => setIsRunning(!isRunning)}
-          title={isRunning ? "Pause Timer" : "Resume Timer"}
+          onClick={onTogglePause}
+          title={!isPaused ? "Pause Game" : "Resume Game"}
         >
-          {isRunning ? "⏸️" : "▶️"}
+          {!isPaused ? "⏸️" : "▶️"}
         </button>
       </div>
     </div>

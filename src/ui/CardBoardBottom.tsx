@@ -23,6 +23,7 @@ const CardBoardBottom: React.FC<CardBoardBottomProps> = ({
           setGame={setGame}
           deck={stockDeck}
           index={index}
+          isPaused={isPaused}
         />
       ))}
     </div>

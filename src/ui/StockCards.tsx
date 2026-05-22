@@ -7,6 +7,7 @@ interface StockCardsProps {
   game: GameState;
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deck: Card[];
+  isPaused: boolean;
 }
 
 const StockCards: React.FC<StockCardsProps> = ({
@@ -14,6 +15,7 @@ const StockCards: React.FC<StockCardsProps> = ({
   game,
   setGame,
   deck,
+  isPaused,
 }) => {
   const [isShown, setIsShown] = useState<boolean>(true);
 
@@ -22,6 +24,7 @@ const StockCards: React.FC<StockCardsProps> = ({
   }, [game.decks]);
 
   const handleCardSplit = (): void => {
+    if (isPaused) return;
     if (!deck || deck.length === 0) return;
 
     const tempDecks = game.decks.map((col) => [...col]);

@@ -22,6 +22,7 @@ const CardBoard: React.FC = () => {
   const [, setGameHistory] = useState<GameState[]>([]);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [gameKey, setGameKey] = useState<number>(0);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
   const winPopupScheduledRef = useRef(false);
 
   useEffect(() => {

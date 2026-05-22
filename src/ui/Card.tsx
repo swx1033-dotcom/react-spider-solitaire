@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import {
   getRank,
   checkCompletedSet,
@@ -14,6 +14,7 @@ interface CardProps {
   game: GameState;
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deckIndex: number;
+  isPaused: boolean;
 }
 
 const Card: React.FC<CardProps> = ({
@@ -22,26 +23,30 @@ const Card: React.FC<CardProps> = ({
   game,
   setGame,
   deckIndex,
+  isPaused,
 }) => {
+  const mouseX = useRef<number>(0);
+  const mouseY = useRef<number>(0);
+  const selectedCards = useRef<HTMLElement[]>([]);
+
   if (!data || !data.rank) return null;
 
   const column = game.decks[deckIndex] ?? [];
-  const canDrag = !data.isDown && isValidDescendingRun(column, index);
-
-  let mouseX: number;
-  let mouseY: number;
-  let selectedCards: HTMLElement[] = [];
+  const canDrag = !isPaused && !data.isDown && isValidDescendingRun(column, index);
 
   const dragStart = (event: React.DragEvent<HTMLDivElement>): void => {
-    if (!canDrag) return;
+    if (isPaused || !canDrag) {
+      event.preventDefault();
+      return;
+    }
 
     const currentCard = event.currentTarget;
     const currentCardIndex = parseInt(
       currentCard.getAttribute("data-index") || "0",
     );
 
-    selectedCards.length = 0;
-    selectedCards.push(currentCard);
+    selectedCards.current = [];
+    selectedCards.current.push(currentCard);
 
     let currentRank = getRank(
       currentCard.getAttribute("data-original-rank") || "0",
@@ -58,12 +63,12 @@ const Card: React.FC<CardProps> = ({
         cardElement.getAttribute("data-original-rank") || "0",
       );
       if (currentRank !== siblingRank + 1) break;
-      selectedCards.push(cardElement);
+      selectedCards.current.push(cardElement);
       currentRank = siblingRank;
     }
 
-    mouseX = event.pageX;
-    mouseY = event.pageY;
+    mouseX.current = event.pageX;
+    mouseY.current = event.pageY;
   };
 
   const dragOver = (event: React.DragEvent<HTMLDivElement>): void => {
@@ -72,18 +77,31 @@ const Card: React.FC<CardProps> = ({
   };
 
   const drag = (event: React.DragEvent<HTMLDivElement>): void => {
-    const diffX = event.pageX - mouseX;
-    const diffY = event.pageY - mouseY;
-    selectedCards.forEach((card, index) => {
+    if (isPaused) return;
+    const diffX = event.pageX - mouseX.current;
+    const diffY = event.pageY - mouseY.current;
+    selectedCards.current.forEach((card, i) => {
       card.classList.add(styles.dragging);
-      const originalTop = index * 30;
+      const originalTop = i * 30;
       card.style.transform = `translate(${diffX}px,${diffY + originalTop}px)`;
     });
   };
 
   const dragEnd = (event: React.DragEvent<HTMLDivElement>): void => {
-    if (!selectedCards.length) return;
-    selectedCards.forEach((card) => {
+    if (!selectedCards.current.length) return;
+
+    if (isPaused) {
+      selectedCards.current.forEach((card, i) => {
+        card.style.visibility = "visible";
+        card.classList.remove(styles.dragging);
+        const originalTop = i * 30;
+        card.style.transform = `translate(0px,${originalTop}px)`;
+      });
+      selectedCards.current = [];
+      return;
+    }
+
+    selectedCards.current.forEach((card) => {
       card.style.visibility = "hidden";
     });
     const xEndPoint = event.pageX;
@@ -92,19 +110,19 @@ const Card: React.FC<CardProps> = ({
       xEndPoint,
       yEndPoint,
     ) as HTMLElement;
-    selectedCards.forEach((card, index) => {
+    selectedCards.current.forEach((card, i) => {
       card.style.visibility = "visible";
       card.classList.remove(styles.dragging);
-      const originalTop = index * 30;
+      const originalTop = i * 30;
       card.style.transform = `translate(0px,${originalTop}px)`;
     });
     if (!dropTarget) {
-      selectedCards = [];
+      selectedCards.current = [];
       return;
     }
-    const isDraggingSelf = selectedCards.some((card) => card === dropTarget);
+    const isDraggingSelf = selectedCards.current.some((card) => card === dropTarget);
     if (isDraggingSelf) {
-      selectedCards = [];
+      selectedCards.current = [];
       return;
     }
     let targetDeckIndex = -1;
@@ -112,7 +130,7 @@ const Card: React.FC<CardProps> = ({
       ".card, .cardHolder",
     ) as HTMLElement;
     if (!targetElement) {
-      selectedCards = [];
+      selectedCards.current = [];
       return;
     }
     if (targetElement.classList.contains("card")) {
@@ -128,18 +146,18 @@ const Card: React.FC<CardProps> = ({
       }
     }
     if (targetDeckIndex === -1 || targetDeckIndex > 9) {
-      selectedCards = [];
+      selectedCards.current = [];
       return;
     }
     const sourceDeckIndex = parseInt(
-      selectedCards[0].getAttribute("data-deck-index") || "-1",
+      selectedCards.current[0].getAttribute("data-deck-index") || "-1",
     );
     if (sourceDeckIndex === targetDeckIndex || sourceDeckIndex > 9) {
-      selectedCards = [];
+      selectedCards.current = [];
       return;
     }
     const topMovedRankStr =
-      selectedCards[0].getAttribute("data-original-rank") || "0";
+      selectedCards.current[0].getAttribute("data-original-rank") || "0";
     const topMovedCard: CardType = {
       rank: topMovedRankStr,
       isDown: false,
@@ -151,9 +169,9 @@ const Card: React.FC<CardProps> = ({
     if (moveAllowed) {
       const tempDecks = game.decks.map((col) => [...col]);
       const selectedCardsStartingIndex = parseInt(
-        selectedCards[0].getAttribute("data-index") || "0",
+        selectedCards.current[0].getAttribute("data-index") || "0",
       );
-      const selectedCardsCount = selectedCards.length;
+      const selectedCardsCount = selectedCards.current.length;
       const transferCards = tempDecks[sourceDeckIndex].splice(
         selectedCardsStartingIndex,
         selectedCardsCount,
@@ -174,7 +192,7 @@ const Card: React.FC<CardProps> = ({
         completed: prevState.completed + completedDelta,
       }));
     }
-    selectedCards = [];
+    selectedCards.current = [];
   };
 
   const flipNewlyExposedCards = (decks: CardType[][]): void => {

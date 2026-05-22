@@ -8,6 +8,7 @@ interface CardHolderProps {
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deck: CardType[];
   deckIndex: number;
+  isPaused: boolean;
 }
 
 const CardHolder: React.FC<CardHolderProps> = ({
@@ -15,6 +16,7 @@ const CardHolder: React.FC<CardHolderProps> = ({
   setGame,
   deck,
   deckIndex,
+  isPaused,
 }) => {
   const validCards = deck.filter((card) => card && card.rank);
 
