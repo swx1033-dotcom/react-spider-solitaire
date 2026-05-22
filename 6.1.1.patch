@@ -1,0 +1,100 @@
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..5a192dc 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -1,5 +1,5 @@
+ import React, { useState, useEffect, useRef } from "react";
+-import { initiateGame, findGameHint } from "../utils/game";
++import { initiateGame, findGameHint, type GameHintMove } from "../utils/game";
+ import CardHolder from "./CardHolder";
+ import styles from "../styles/CardBoard.module.css";
+ import Header from "./Header";
+@@ -22,6 +22,7 @@ const CardBoard: React.FC = () => {
+   const [, setGameHistory] = useState<GameState[]>([]);
+   const [canUndo, setCanUndo] = useState<boolean>(false);
+   const [gameKey, setGameKey] = useState<number>(0);
++  const [lastHintMove, setLastHintMove] = useState<GameHintMove | null>(null);
+   const winPopupScheduledRef = useRef(false);
+ 
+   useEffect(() => {
+@@ -54,6 +55,7 @@ const CardBoard: React.FC = () => {
+     setGame(newGameState);
+     setGameHistory([]);
+     setCanUndo(false);
++    setLastHintMove(null);
+     setGameKey((prev) => prev + 1);
+   };
+ 
+@@ -63,12 +65,17 @@ const CardBoard: React.FC = () => {
+       const previousState = prev[prev.length - 1];
+       setGame(previousState);
+       setCanUndo(prev.length - 1 > 0);
++      setLastHintMove(null);
+       return prev.slice(0, -1);
+     });
+   };
+ 
+   const handleHint = (): void => {
+-    showInfo(findGameHint(game.decks).text);
++    const hint = findGameHint(game.decks, lastHintMove);
++    if (hint.kind === "move" && hint.move) {
++      setLastHintMove(hint.move);
++    }
++    showInfo(hint.text);
+   };
+ 
+   const updateGameWithHistory = (
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..9496f20 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -140,13 +140,21 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
+ 
+ export type GameHintKind = "complete" | "move" | "deal" | "stuck";
+ 
++export type GameHintMove = {
++  from: number;
++  to: number;
++};
++
+ export type GameHint = {
+   kind: GameHintKind;
+   text: string;
++  move?: GameHintMove;
+ };
+ 
+-/** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
+-export const findGameHint = (decks: Card[][]): GameHint => {
++export const findGameHint = (
++  decks: Card[][],
++  previousHintMove: GameHintMove | null = null,
++): GameHint => {
+   for (let c = 0; c < 10; c++) {
+     if (checkCompletedSet(decks[c] ?? [])) {
+       return {
+@@ -169,10 +177,17 @@ export const findGameHint = (decks: Card[][]): GameHint => {
+         if (col[start].isDown) continue;
+         if (!isValidDescendingRun(col, start)) continue;
+         const mover = col[start];
++        const candidateMove: GameHintMove = { from, to };
++        const isReverseOfPreviousHint =
++          previousHintMove !== null &&
++          candidateMove.from === previousHintMove.to &&
++          candidateMove.to === previousHintMove.from;
++        if (isReverseOfPreviousHint) continue;
+         if (isValidMove(mover, targetTop)) {
+           return {
+             kind: "move",
+             text: `Try moving from column ${from + 1} to column ${to + 1}.`,
++            move: candidateMove,
+           };
+         }
+       }
+@@ -190,6 +205,6 @@ export const findGameHint = (decks: Card[][]): GameHint => {
+ 
+   return {
+     kind: "stuck",
+-    text: "No obvious move — try Undo or a different stack, or start a New Game.",
++    text: "无有效建议",
+   };
+ };

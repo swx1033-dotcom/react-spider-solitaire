@@ -140,13 +140,21 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
 
 export type GameHintKind = "complete" | "move" | "deal" | "stuck";
 
+export type GameHintMove = {
+  from: number;
+  to: number;
+};
+
 export type GameHint = {
   kind: GameHintKind;
   text: string;
+  move?: GameHintMove;
 };
 
-/** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
-export const findGameHint = (decks: Card[][]): GameHint => {
+export const findGameHint = (
+  decks: Card[][],
+  previousHintMove: GameHintMove | null = null,
+): GameHint => {
   for (let c = 0; c < 10; c++) {
     if (checkCompletedSet(decks[c] ?? [])) {
       return {
@@ -169,10 +177,17 @@ export const findGameHint = (decks: Card[][]): GameHint => {
         if (col[start].isDown) continue;
         if (!isValidDescendingRun(col, start)) continue;
         const mover = col[start];
+        const candidateMove: GameHintMove = { from, to };
+        const isReverseOfPreviousHint =
+          previousHintMove !== null &&
+          candidateMove.from === previousHintMove.to &&
+          candidateMove.to === previousHintMove.from;
+        if (isReverseOfPreviousHint) continue;
         if (isValidMove(mover, targetTop)) {
           return {
             kind: "move",
             text: `Try moving from column ${from + 1} to column ${to + 1}.`,
+            move: candidateMove,
           };
         }
       }
@@ -190,6 +205,6 @@ export const findGameHint = (decks: Card[][]): GameHint => {
 
   return {
     kind: "stuck",
-    text: "No obvious move — try Undo or a different stack, or start a New Game.",
+    text: "无有效建议",
   };
 };
