@@ -14,6 +14,7 @@ interface CardProps {
   game: GameState;
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deckIndex: number;
+  interactionsDisabled?: boolean;
 }
 
 const Card: React.FC<CardProps> = ({
@@ -22,18 +23,20 @@ const Card: React.FC<CardProps> = ({
   game,
   setGame,
   deckIndex,
+  interactionsDisabled = false,
 }) => {
   if (!data || !data.rank) return null;
 
   const column = game.decks[deckIndex] ?? [];
-  const canDrag = !data.isDown && isValidDescendingRun(column, index);
+  const canDrag =
+    !interactionsDisabled && !data.isDown && isValidDescendingRun(column, index);
 
   let mouseX: number;
   let mouseY: number;
   let selectedCards: HTMLElement[] = [];
 
   const dragStart = (event: React.DragEvent<HTMLDivElement>): void => {
-    if (!canDrag) return;
+    if (!canDrag || interactionsDisabled) return;
 
     const currentCard = event.currentTarget;
     const currentCardIndex = parseInt(
@@ -72,6 +75,7 @@ const Card: React.FC<CardProps> = ({
   };
 
   const drag = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (interactionsDisabled) return;
     const diffX = event.pageX - mouseX;
     const diffY = event.pageY - mouseY;
     selectedCards.forEach((card, index) => {
@@ -82,7 +86,7 @@ const Card: React.FC<CardProps> = ({
   };
 
   const dragEnd = (event: React.DragEvent<HTMLDivElement>): void => {
-    if (!selectedCards.length) return;
+    if (interactionsDisabled || !selectedCards.length) return;
     selectedCards.forEach((card) => {
       card.style.visibility = "hidden";
     });
@@ -186,7 +190,6 @@ const Card: React.FC<CardProps> = ({
     }
   };
 
-  /** Removes completed K→A runs from the first 10 columns; returns how many runs were removed. */
   const removeCompletedSetsFromTableau = (decks: CardType[][]): number => {
     let completedSets = 0;
     for (let i = 0; i < 10; i++) {

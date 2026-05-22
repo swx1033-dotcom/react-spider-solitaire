@@ -1,5 +1,5 @@
 import _ from "lodash";
-import type { Card, GameInit, CardRank } from "../types/game";
+import type { Card, GameInit, CardRank, GameMode } from "../types/game";
 
 const cardInfo = {
   rank: [
@@ -20,7 +20,7 @@ const cardInfo = {
   value: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
 };
 
-export const initiateGame = (): GameInit => {
+export const initiateGame = (mode: GameMode = "classic"): GameInit => {
   let cards: Card[] = [],
     decks: Card[][];
 
@@ -48,6 +48,7 @@ export const initiateGame = (): GameInit => {
   return {
     decks: decks,
     cards: shuffledCards,
+    mode,
   };
 };
 
@@ -86,7 +87,6 @@ export const isValidMove = (
   return selectedRank === targetRank - 1;
 };
 
-/** Completed K→A run in tableau; startIndex is the index within the full column array. */
 export type CompletedSetResult = { startIndex: number; cards: Card[] };
 
 export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
@@ -127,7 +127,6 @@ export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
   return null;
 };
 
-/** True if from `start` through the bottom of the column is face-up and strictly descending (single-suit Spider). */
 export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
   if (start < 0 || start >= deck.length) return false;
   if (deck[start].isDown) return false;
@@ -145,7 +144,6 @@ export type GameHint = {
   text: string;
 };
 
-/** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
 export const findGameHint = (decks: Card[][]): GameHint => {
   for (let c = 0; c < 10; c++) {
     if (checkCompletedSet(decks[c] ?? [])) {

@@ -7,6 +7,7 @@ interface StockCardsProps {
   game: GameState;
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deck: Card[];
+  interactionsDisabled?: boolean;
 }
 
 const StockCards: React.FC<StockCardsProps> = ({
@@ -14,6 +15,7 @@ const StockCards: React.FC<StockCardsProps> = ({
   game,
   setGame,
   deck,
+  interactionsDisabled = false,
 }) => {
   const [isShown, setIsShown] = useState<boolean>(true);
 
@@ -22,7 +24,7 @@ const StockCards: React.FC<StockCardsProps> = ({
   }, [game.decks]);
 
   const handleCardSplit = (): void => {
-    if (!deck || deck.length === 0) return;
+    if (interactionsDisabled || !deck || deck.length === 0) return;
 
     const tempDecks = game.decks.map((col) => [...col]);
 
@@ -57,17 +59,19 @@ const StockCards: React.FC<StockCardsProps> = ({
           data-index={index.toString()}
           data-stock-remaining={remainingStockPiles}
           role="button"
-          tabIndex={0}
+          tabIndex={interactionsDisabled ? -1 : 0}
           title={`Deal one face-up card to each column (${deck.length} in this pile, ${remainingStockPiles} stock pile(s) left)`}
           aria-label={`Deal row from stock pile ${index + 1}, ${deck.length} cards in pile`}
+          aria-disabled={interactionsDisabled}
           onClick={handleCardSplit}
           onKeyDown={(e) => {
+            if (interactionsDisabled) return;
             if (e.key === "Enter" || e.key === " ") {
               e.preventDefault();
               handleCardSplit();
             }
           }}
-          style={{ cursor: "pointer" }}
+          style={{ cursor: interactionsDisabled ? "not-allowed" : "pointer" }}
         />
       )}
     </>

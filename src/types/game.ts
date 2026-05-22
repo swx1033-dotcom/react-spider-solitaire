@@ -4,6 +4,8 @@ export interface Card {
   deck?: number;
 }
 
+export type GameMode = "classic" | "timed";
+
 export interface GameState {
   decks: Card[][];
   completed: number;
@@ -13,6 +15,7 @@ export interface GameState {
 export interface GameInit {
   decks: Card[][];
   cards: Card[];
+  mode: GameMode;
 }
 
 export type CardRank =
