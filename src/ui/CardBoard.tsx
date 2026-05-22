@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { initiateGame, findGameHint } from "../utils/game";
+import type { LastHintInfo } from "../utils/game";
 import CardHolder from "./CardHolder";
 import styles from "../styles/CardBoard.module.css";
 import Header from "./Header";
@@ -23,6 +24,7 @@ const CardBoard: React.FC = () => {
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [gameKey, setGameKey] = useState<number>(0);
   const winPopupScheduledRef = useRef(false);
+  const lastHintRef = useRef<LastHintInfo>(null);
 
   useEffect(() => {
     startNewGame();
@@ -55,6 +57,7 @@ const CardBoard: React.FC = () => {
     setGameHistory([]);
     setCanUndo(false);
     setGameKey((prev) => prev + 1);
+    lastHintRef.current = null;
   };
 
   const handleUndo = (): void => {
@@ -68,7 +71,13 @@ const CardBoard: React.FC = () => {
   };
 
   const handleHint = (): void => {
-    showInfo(findGameHint(game.decks).text);
+    const hint = findGameHint(game.decks, lastHintRef.current);
+    if (hint.kind === "move" && hint.sourceCol !== undefined && hint.targetCol !== undefined) {
+      lastHintRef.current = { sourceCol: hint.sourceCol, targetCol: hint.targetCol };
+    } else {
+      lastHintRef.current = null;
+    }
+    showInfo(hint.text);
   };
 
   const updateGameWithHistory = (
