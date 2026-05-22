@@ -60,3 +60,31 @@ export const showWonPopup = (restart: () => void): void => {
     }
   });
 };
+
+export const showShuffleConfirmPopup = (onConfirm: () => void, shuffleCount: number): void => {
+  Swal.fire({
+    title: "无可用移动！",
+    html: `
+			<div style="text-align: center;">
+				<p style="color: #4a7c59; font-size: 18px; margin-bottom: 15px;">
+					是否重新洗牌并保留当前进度？
+				</p>
+				<p style="color: #666; font-size: 14px;">
+					已使用洗牌次数: ${shuffleCount}/3
+				</p>
+			</div>
+		`,
+    icon: "question",
+    showCancelButton: true,
+    confirmButtonText: "洗牌",
+    cancelButtonText: "取消",
+    confirmButtonColor: "#2d5a27",
+    cancelButtonColor: "#6c757d",
+    showCloseButton: true,
+    allowOutsideClick: false,
+  }).then((result) => {
+    if (result.isConfirmed) {
+      onConfirm();
+    }
+  });
+};

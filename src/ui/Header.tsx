@@ -4,10 +4,13 @@ import styles from "../styles/Header.module.css";
 interface HeaderProps {
   completed: number;
   moveCount: number;
+  shuffleCount: number;
   onNewGame: () => void;
   onUndo?: () => void;
   onHint?: () => void;
+  onShuffle?: () => void;
   canUndo?: boolean;
+  canShuffle?: boolean;
   /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
   sessionKey?: number;
 }
@@ -15,10 +18,13 @@ interface HeaderProps {
 const Header: React.FC<HeaderProps> = ({
   completed,
   moveCount,
+  shuffleCount,
   onNewGame,
   onUndo,
   onHint,
+  onShuffle,
   canUndo = false,
+  canShuffle = true,
   sessionKey = 0,
 }) => {
   const [timer, setTimer] = useState<number>(0);
@@ -81,6 +87,17 @@ const Header: React.FC<HeaderProps> = ({
         </button>
         <button type="button" className={styles.btn} onClick={() => onHint?.()}>
           💡 Hint
+        </button>
+        <button
+          type="button"
+          className={`${styles.btn} ${
+            !canShuffle ? styles.disabled : ""
+          }`}
+          onClick={() => onShuffle?.()}
+          disabled={!canShuffle}
+          title={`洗牌 (剩余 ${3 - shuffleCount} 次)`}
+        >
+          🔀 Shuffle ({3 - shuffleCount}/3)
         </button>
       </div>
       <div className={styles.centerSection}>
