@@ -1,0 +1,188 @@
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..45a979f 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -1,5 +1,5 @@
+ import React, { useState, useEffect, useRef } from "react";
+-import { initiateGame, findGameHint } from "../utils/game";
++import { initiateGame, findGameHint, LastHintMove } from "../utils/game";
+ import CardHolder from "./CardHolder";
+ import styles from "../styles/CardBoard.module.css";
+ import Header from "./Header";
+@@ -22,6 +22,7 @@ const CardBoard: React.FC = () => {
+   const [, setGameHistory] = useState<GameState[]>([]);
+   const [canUndo, setCanUndo] = useState<boolean>(false);
+   const [gameKey, setGameKey] = useState<number>(0);
++  const [lastHintMove, setLastHintMove] = useState<LastHintMove | undefined>(undefined);
+   const winPopupScheduledRef = useRef(false);
+ 
+   useEffect(() => {
+@@ -55,6 +56,7 @@ const CardBoard: React.FC = () => {
+     setGameHistory([]);
+     setCanUndo(false);
+     setGameKey((prev) => prev + 1);
++    setLastHintMove(undefined);
+   };
+ 
+   const handleUndo = (): void => {
+@@ -68,7 +70,21 @@ const CardBoard: React.FC = () => {
+   };
+ 
+   const handleHint = (): void => {
+-    showInfo(findGameHint(game.decks).text);
++    const hint = findGameHint(game.decks, lastHintMove);
++    showInfo(hint.text);
++    
++    if (hint.kind === "move") {
++      const fromMatch = hint.text.match(/column (\d+)/i);
++      const toMatch = hint.text.match(/to column (\d+)/i);
++      if (fromMatch && toMatch) {
++        setLastHintMove({
++          from: parseInt(fromMatch[1]) - 1,
++          to: parseInt(toMatch[1]) - 1,
++        });
++      }
++    } else {
++      setLastHintMove(undefined);
++    }
+   };
+ 
+   const updateGameWithHistory = (
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..11ef1c3 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -138,15 +138,20 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
+   return true;
+ };
+ 
+-export type GameHintKind = "complete" | "move" | "deal" | "stuck";
++export type GameHintKind = "complete" | "move" | "deal" | "stuck" | "no-suggestion";
+ 
+ export type GameHint = {
+   kind: GameHintKind;
+   text: string;
+ };
+ 
++export type LastHintMove = {
++  from: number;
++  to: number;
++};
++
+ /** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
+-export const findGameHint = (decks: Card[][]): GameHint => {
++export const findGameHint = (decks: Card[][], lastHintMove?: LastHintMove): GameHint => {
+   for (let c = 0; c < 10; c++) {
+     if (checkCompletedSet(decks[c] ?? [])) {
+       return {
+@@ -156,6 +161,8 @@ export const findGameHint = (decks: Card[][]): GameHint => {
+     }
+   }
+ 
++  const allMoves: Array<{ from: number; to: number }> = [];
++
+   for (let to = 0; to < 10; to++) {
+     const targetCol = decks[to] ?? [];
+     const targetTop =
+@@ -170,15 +177,32 @@ export const findGameHint = (decks: Card[][]): GameHint => {
+         if (!isValidDescendingRun(col, start)) continue;
+         const mover = col[start];
+         if (isValidMove(mover, targetTop)) {
+-          return {
+-            kind: "move",
+-            text: `Try moving from column ${from + 1} to column ${to + 1}.`,
+-          };
++          allMoves.push({ from, to });
+         }
+       }
+     }
+   }
+ 
++  const filteredMoves = allMoves.filter(
++    (m) =>
++      !lastHintMove || !(m.from === lastHintMove.to && m.to === lastHintMove.from)
++  );
++
++  if (filteredMoves.length > 0) {
++    const m = filteredMoves[0];
++    return {
++      kind: "move",
++      text: `Try moving from column ${m.from + 1} to column ${m.to + 1}.`,
++    };
++  }
++
++  if (allMoves.length > 0 && lastHintMove) {
++    return {
++      kind: "no-suggestion",
++      text: "No useful suggestion available — the only moves would undo the previous hint.",
++    };
++  }
++
+   const stockHasCards = decks.slice(10, 15).some((d) => (d?.length ?? 0) > 0);
+ 
+   if (stockHasCards) {
+diff --git a/tests/utils/game.test.ts b/tests/utils/game.test.ts
+index 0d076bd..c3478c0 100644
+--- a/tests/utils/game.test.ts
++++ b/tests/utils/game.test.ts
+@@ -7,6 +7,7 @@ import {
+   checkCompletedSet,
+   isValidDescendingRun,
+   findGameHint,
++  LastHintMove,
+ } from "../../src/utils/game";
+ import type { Card } from "../../src/types/game";
+ 
+@@ -387,5 +388,52 @@ describe("Game Utils", () => {
+       const h = findGameHint(decks);
+       expect(h.kind).toBe("stuck");
+     });
++
++    it("avoids recommending the reverse of the last hint move", () => {
++      const decks = empty15();
++      decks[0] = [{ rank: "Q", isDown: false }];
++      decks[1] = [{ rank: "K", isDown: false }];
++      
++      const lastHint: LastHintMove = { from: 1, to: 0 };
++      const h = findGameHint(decks, lastHint);
++      
++      expect(h.kind).toBe("no-suggestion");
++      expect(h.text).toContain("undo");
++    });
++
++    it("suggests alternative moves when reverse is blocked", () => {
++      const decks = empty15();
++      decks[0] = [{ rank: "Q", isDown: false }];
++      decks[1] = [{ rank: "K", isDown: false }];
++      decks[2] = [{ rank: "J", isDown: false }];
++      
++      const lastHint: LastHintMove = { from: 1, to: 0 };
++      const h = findGameHint(decks, lastHint);
++      
++      expect(h.kind).toBe("move");
++      expect(h.text).not.toMatch(/column 2.*column 1/i);
++    });
++
++    it("works without lastHintMove parameter (backward compatible)", () => {
++      const decks = empty15();
++      decks[0] = [{ rank: "Q", isDown: false }];
++      decks[1] = [{ rank: "K", isDown: false }];
++      
++      const h = findGameHint(decks);
++      expect(h.kind).toBe("move");
++    });
++
++    it("clears lastHintMove when hint is not a move type", () => {
++      const ranks = [
++        "K", "Q", "J", "10", "9", "8", "7", "6", "5", "4", "3", "2", "A",
++      ];
++      const decks = empty15();
++      decks[0] = ranks.map((rank) => ({ rank, isDown: false }));
++      
++      const lastHint: LastHintMove = { from: 0, to: 1 };
++      const h = findGameHint(decks, lastHint);
++      
++      expect(h.kind).toBe("complete");
++    });
+   });
+ });

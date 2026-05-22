@@ -7,6 +7,7 @@ import {
   checkCompletedSet,
   isValidDescendingRun,
   findGameHint,
+  LastHintMove,
 } from "../../src/utils/game";
 import type { Card } from "../../src/types/game";
 
@@ -386,6 +387,53 @@ describe("Game Utils", () => {
       }
       const h = findGameHint(decks);
       expect(h.kind).toBe("stuck");
+    });
+
+    it("avoids recommending the reverse of the last hint move", () => {
+      const decks = empty15();
+      decks[0] = [{ rank: "Q", isDown: false }];
+      decks[1] = [{ rank: "K", isDown: false }];
+      
+      const lastHint: LastHintMove = { from: 1, to: 0 };
+      const h = findGameHint(decks, lastHint);
+      
+      expect(h.kind).toBe("no-suggestion");
+      expect(h.text).toContain("undo");
+    });
+
+    it("suggests alternative moves when reverse is blocked", () => {
+      const decks = empty15();
+      decks[0] = [{ rank: "Q", isDown: false }];
+      decks[1] = [{ rank: "K", isDown: false }];
+      decks[2] = [{ rank: "J", isDown: false }];
+      
+      const lastHint: LastHintMove = { from: 1, to: 0 };
+      const h = findGameHint(decks, lastHint);
+      
+      expect(h.kind).toBe("move");
+      expect(h.text).not.toMatch(/column 2.*column 1/i);
+    });
+
+    it("works without lastHintMove parameter (backward compatible)", () => {
+      const decks = empty15();
+      decks[0] = [{ rank: "Q", isDown: false }];
+      decks[1] = [{ rank: "K", isDown: false }];
+      
+      const h = findGameHint(decks);
+      expect(h.kind).toBe("move");
+    });
+
+    it("clears lastHintMove when hint is not a move type", () => {
+      const ranks = [
+        "K", "Q", "J", "10", "9", "8", "7", "6", "5", "4", "3", "2", "A",
+      ];
+      const decks = empty15();
+      decks[0] = ranks.map((rank) => ({ rank, isDown: false }));
+      
+      const lastHint: LastHintMove = { from: 0, to: 1 };
+      const h = findGameHint(decks, lastHint);
+      
+      expect(h.kind).toBe("complete");
     });
   });
 });

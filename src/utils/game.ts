@@ -138,15 +138,20 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
   return true;
 };
 
-export type GameHintKind = "complete" | "move" | "deal" | "stuck";
+export type GameHintKind = "complete" | "move" | "deal" | "stuck" | "no-suggestion";
 
 export type GameHint = {
   kind: GameHintKind;
   text: string;
 };
 
+export type LastHintMove = {
+  from: number;
+  to: number;
+};
+
 /** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
-export const findGameHint = (decks: Card[][]): GameHint => {
+export const findGameHint = (decks: Card[][], lastHintMove?: LastHintMove): GameHint => {
   for (let c = 0; c < 10; c++) {
     if (checkCompletedSet(decks[c] ?? [])) {
       return {
@@ -155,6 +160,8 @@ export const findGameHint = (decks: Card[][]): GameHint => {
       };
     }
   }
+
+  const allMoves: Array<{ from: number; to: number }> = [];
 
   for (let to = 0; to < 10; to++) {
     const targetCol = decks[to] ?? [];
@@ -170,13 +177,30 @@ export const findGameHint = (decks: Card[][]): GameHint => {
         if (!isValidDescendingRun(col, start)) continue;
         const mover = col[start];
         if (isValidMove(mover, targetTop)) {
-          return {
-            kind: "move",
-            text: `Try moving from column ${from + 1} to column ${to + 1}.`,
-          };
+          allMoves.push({ from, to });
         }
       }
     }
+  }
+
+  const filteredMoves = allMoves.filter(
+    (m) =>
+      !lastHintMove || !(m.from === lastHintMove.to && m.to === lastHintMove.from)
+  );
+
+  if (filteredMoves.length > 0) {
+    const m = filteredMoves[0];
+    return {
+      kind: "move",
+      text: `Try moving from column ${m.from + 1} to column ${m.to + 1}.`,
+    };
+  }
+
+  if (allMoves.length > 0 && lastHintMove) {
+    return {
+      kind: "no-suggestion",
+      text: "No useful suggestion available — the only moves would undo the previous hint.",
+    };
   }
 
   const stockHasCards = decks.slice(10, 15).some((d) => (d?.length ?? 0) > 0);
