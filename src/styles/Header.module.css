@@ -105,6 +105,88 @@
   padding: 8px;
 }
 
+.modeToggle {
+  display: flex;
+  gap: 0;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+}
+
+.modeBtn {
+  padding: 8px 16px;
+  border: 2px solid #ffd700;
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffd700;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+  min-width: 80px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modeBtn:first-child {
+  border-radius: 8px 0 0 8px;
+  border-right: 1px solid #ffd700;
+}
+
+.modeBtn:last-child {
+  border-radius: 0 8px 8px 0;
+  border-left: 1px solid #ffd700;
+}
+
+.modeBtn:hover:not(:disabled) {
+  background: rgba(255, 215, 0, 0.2);
+}
+
+.modeBtnActive {
+  background: #ffd700;
+  color: #2d5a27;
+  font-weight: 700;
+}
+
+.modeBtnActive:hover:not(:disabled) {
+  background: #ffd700;
+}
+
+.modeBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.countdownWarning {
+  animation: countdownPulse 1s infinite;
+}
+
+.countdownWarningValue {
+  color: #ff4444 !important;
+  text-shadow: 0 0 10px rgba(255, 68, 68, 0.5) !important;
+}
+
+.countdownExpired {
+  color: #ff0000 !important;
+  text-shadow: 0 0 15px rgba(255, 0, 0, 0.7) !important;
+  animation: countdownPulse 0.5s infinite;
+}
+
+@keyframes countdownPulse {
+  0% {
+    transform: scale(1);
+  }
+
+  50% {
+    transform: scale(1.15);
+  }
+
+  100% {
+    transform: scale(1);
+  }
+}
+
 .undoBtn {
   background: linear-gradient(145deg, #5a7c3a, #4a6b2d);
 }

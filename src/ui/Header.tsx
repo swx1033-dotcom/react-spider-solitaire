@@ -1,5 +1,8 @@
 import React, { useState, useEffect } from "react";
 import styles from "../styles/Header.module.css";
+import type { GameMode } from "../types/game";
+
+const CHALLENGE_TIME = 300;
 
 interface HeaderProps {
   completed: number;
@@ -8,8 +11,12 @@ interface HeaderProps {
   onUndo?: () => void;
   onHint?: () => void;
   canUndo?: boolean;
-  /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
   sessionKey?: number;
+  gameMode: GameMode;
+  onSwitchMode: (mode: GameMode) => void;
+  isGameOver?: boolean;
+  onTimeUp?: () => void;
+  timerRef?: React.MutableRefObject<{ elapsed: number; remaining: number }>;
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -20,28 +27,67 @@ const Header: React.FC<HeaderProps> = ({
   onHint,
   canUndo = false,
   sessionKey = 0,
+  gameMode,
+  onSwitchMode,
+  isGameOver = false,
+  onTimeUp,
+  timerRef,
 }) => {
   const [timer, setTimer] = useState<number>(0);
+  const [countdown, setCountdown] = useState<number>(CHALLENGE_TIME);
   const [isRunning, setIsRunning] = useState<boolean>(true);
+  const timeUpCalledRef = React.useRef(false);
 
   useEffect(() => {
-    let interval: number;
+    let interval: ReturnType<typeof setInterval>;
     if (isRunning) {
       interval = setInterval(() => {
         setTimer((prev) => prev + 1);
+        if (gameMode === "challenge") {
+          setCountdown((prev) => {
+            if (prev <= 1) {
+              return 0;
+            }
+            return prev - 1;
+          });
+        }
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isRunning]);
+  }, [isRunning, gameMode]);
 
   useEffect(() => {
-    if (completed === 8) setIsRunning(false);
-  }, [completed]);
+    if (
+      gameMode === "challenge" &&
+      countdown <= 0 &&
+      isRunning &&
+      !timeUpCalledRef.current
+    ) {
+      timeUpCalledRef.current = true;
+      setIsRunning(false);
+      onTimeUp?.();
+    }
+  }, [countdown, gameMode, isRunning, onTimeUp]);
+
+  useEffect(() => {
+    if (completed === 8 || isGameOver) setIsRunning(false);
+  }, [completed, isGameOver]);
 
   useEffect(() => {
     setTimer(0);
+    setCountdown(CHALLENGE_TIME);
     setIsRunning(true);
+    timeUpCalledRef.current = false;
   }, [sessionKey]);
+
+  useEffect(() => {
+    if (timerRef) {
+      timerRef.current = {
+        elapsed: timer,
+        remaining: gameMode === "challenge" ? countdown : 0,
+      };
+    }
+  }, [timer, countdown, gameMode, timerRef]);
 
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -57,11 +103,23 @@ const Header: React.FC<HeaderProps> = ({
 
   const handleNewGame = (): void => {
     setTimer(0);
+    setCountdown(CHALLENGE_TIME);
     setIsRunning(true);
+    timeUpCalledRef.current = false;
     onNewGame();
   };
 
+  const handleSwitchMode = (mode: GameMode): void => {
+    if (mode === gameMode) return;
+    setTimer(0);
+    setCountdown(CHALLENGE_TIME);
+    setIsRunning(true);
+    timeUpCalledRef.current = false;
+    onSwitchMode(mode);
+  };
+
   const isGameCompleted = completed === 8;
+  const interactionDisabled = isGameOver;
 
   return (
     <div className={styles.header}>
@@ -72,14 +130,21 @@ const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           className={`${styles.btn} ${styles.undoBtn} ${
-            !canUndo ? styles.disabled : ""
+            !canUndo || interactionDisabled ? styles.disabled : ""
           }`}
           onClick={() => onUndo?.()}
-          disabled={!canUndo}
+          disabled={!canUndo || interactionDisabled}
         >
           ↩️ Undo
         </button>
-        <button type="button" className={styles.btn} onClick={() => onHint?.()}>
+        <button
+          type="button"
+          className={`${styles.btn} ${
+            interactionDisabled ? styles.disabled : ""
+          }`}
+          onClick={() => onHint?.()}
+          disabled={interactionDisabled}
+        >
           💡 Hint
         </button>
       </div>
@@ -103,14 +168,57 @@ const Header: React.FC<HeaderProps> = ({
             <span className={styles.statLabel}>Time:</span>
             <span className={styles.statValue}>{formatTime(timer)}</span>
           </div>
+          {gameMode === "challenge" && (
+            <div
+              className={`${styles.statItem} ${
+                countdown <= 30 && countdown > 0 ? styles.countdownWarning : ""
+              }`}
+            >
+              <span className={styles.statLabel}>Countdown:</span>
+              <span
+                className={`${styles.statValue} ${
+                  countdown <= 30 && countdown > 0
+                    ? styles.countdownWarningValue
+                    : ""
+                } ${countdown === 0 ? styles.countdownExpired : ""}`}
+              >
+                {formatTime(countdown)}
+              </span>
+            </div>
+          )}
         </div>
       </div>
       <div className={styles.rightSection}>
+        <div className={styles.modeToggle}>
+          <button
+            type="button"
+            className={`${styles.modeBtn} ${
+              gameMode === "classic" ? styles.modeBtnActive : ""
+            }`}
+            onClick={() => handleSwitchMode("classic")}
+            disabled={interactionDisabled}
+          >
+            Classic
+          </button>
+          <button
+            type="button"
+            className={`${styles.modeBtn} ${
+              gameMode === "challenge" ? styles.modeBtnActive : ""
+            }`}
+            onClick={() => handleSwitchMode("challenge")}
+            disabled={interactionDisabled}
+          >
+            Challenge
+          </button>
+        </div>
         <button
           type="button"
-          className={`${styles.btn} ${styles.iconBtn}`}
+          className={`${styles.btn} ${styles.iconBtn} ${
+            interactionDisabled ? styles.disabled : ""
+          }`}
           onClick={() => setIsRunning(!isRunning)}
           title={isRunning ? "Pause Timer" : "Resume Timer"}
+          disabled={interactionDisabled}
         >
           {isRunning ? "⏸️" : "▶️"}
         </button>

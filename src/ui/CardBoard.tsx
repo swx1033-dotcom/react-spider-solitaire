@@ -4,8 +4,8 @@ import CardHolder from "./CardHolder";
 import styles from "../styles/CardBoard.module.css";
 import Header from "./Header";
 import CardBoardBottom from "./CardBoardBottom";
-import { GameState } from "../types/game";
-import { showInfo, showWonPopup } from "../utils/toaster";
+import type { GameState, GameMode } from "../types/game";
+import { showInfo, showWonPopup, showTimeUpPopup } from "../utils/toaster";
 
 const cloneGameState = (g: GameState): GameState => ({
   completed: g.completed,
@@ -22,10 +22,16 @@ const CardBoard: React.FC = () => {
   const [, setGameHistory] = useState<GameState[]>([]);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [gameKey, setGameKey] = useState<number>(0);
+  const [gameMode, setGameMode] = useState<GameMode>("classic");
+  const [isGameOver, setIsGameOver] = useState<boolean>(false);
   const winPopupScheduledRef = useRef(false);
+  const timerRef = useRef<{ elapsed: number; remaining: number }>({
+    elapsed: 0,
+    remaining: 0,
+  });
 
   useEffect(() => {
-    startNewGame();
+    startNewGame(gameMode);
   }, []);
 
   useEffect(() => {
@@ -36,16 +42,18 @@ const CardBoard: React.FC = () => {
     if (winPopupScheduledRef.current) return;
     winPopupScheduledRef.current = true;
     const t = window.setTimeout(() => {
+      const remainingTime =
+        gameMode === "challenge" ? timerRef.current.remaining : undefined;
       showWonPopup(() => {
         winPopupScheduledRef.current = false;
-        startNewGame();
-      });
+        startNewGame(gameMode);
+      }, remainingTime);
     }, 500);
     return () => window.clearTimeout(t);
-  }, [game.completed]);
+  }, [game.completed, gameMode]);
 
-  const startNewGame = (): void => {
-    const init = initiateGame();
+  const startNewGame = (mode: GameMode = gameMode): void => {
+    const init = initiateGame(mode);
     const newGameState: GameState = {
       decks: init.decks,
       completed: 0,
@@ -54,6 +62,7 @@ const CardBoard: React.FC = () => {
     setGame(newGameState);
     setGameHistory([]);
     setCanUndo(false);
+    setIsGameOver(false);
     setGameKey((prev) => prev + 1);
   };
 
@@ -71,9 +80,32 @@ const CardBoard: React.FC = () => {
     showInfo(findGameHint(game.decks).text);
   };
 
+  const handleTimeUp = (): void => {
+    setIsGameOver(true);
+    showTimeUpPopup(() => {
+      startNewGame(gameMode);
+    });
+  };
+
+  const handleSwitchMode = (mode: GameMode): void => {
+    setGameMode(mode);
+    const init = initiateGame(mode);
+    const newGameState: GameState = {
+      decks: init.decks,
+      completed: 0,
+      moveCount: 0,
+    };
+    setGame(newGameState);
+    setGameHistory([]);
+    setCanUndo(false);
+    setIsGameOver(false);
+    setGameKey((prev) => prev + 1);
+  };
+
   const updateGameWithHistory = (
     next: React.SetStateAction<GameState>,
   ): void => {
+    if (isGameOver) return;
     setGame((prev) => {
       const resolved = typeof next === "function" ? next(prev) : next;
       setGameHistory((h) => [...h, cloneGameState(prev)]);
@@ -87,11 +119,16 @@ const CardBoard: React.FC = () => {
       <Header
         completed={game.completed}
         moveCount={game.moveCount}
-        onNewGame={startNewGame}
+        onNewGame={() => startNewGame(gameMode)}
         onUndo={handleUndo}
         onHint={handleHint}
-        canUndo={canUndo}
+        canUndo={canUndo && !isGameOver}
         sessionKey={gameKey}
+        gameMode={gameMode}
+        onSwitchMode={handleSwitchMode}
+        isGameOver={isGameOver}
+        onTimeUp={handleTimeUp}
+        timerRef={timerRef}
       />
       <div className={styles.board}>
         {game.decks.slice(0, 10).map((deck, index) => (
@@ -101,6 +138,7 @@ const CardBoard: React.FC = () => {
             deckIndex={index}
             setGame={updateGameWithHistory}
             key={`pile${index}`}
+            disabled={isGameOver}
           />
         ))}
       </div>
@@ -108,6 +146,7 @@ const CardBoard: React.FC = () => {
         game={game}
         setGame={updateGameWithHistory}
         stockDecks={game.decks.slice(10)}
+        disabled={isGameOver}
       />
     </div>
   );

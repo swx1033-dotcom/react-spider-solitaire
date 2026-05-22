@@ -29,3 +29,5 @@ export type CardRank =
   | "J"
   | "Q"
   | "K";
+
+export type GameMode = "classic" | "challenge";

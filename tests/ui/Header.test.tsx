@@ -18,12 +18,19 @@ vi.mock("../../src/styles/Header.module.css", () => ({
     statValue: "stat-value-class",
     completed: "completed-class",
     iconBtn: "icon-btn-class",
+    modeToggle: "mode-toggle-class",
+    modeBtn: "mode-btn-class",
+    modeBtnActive: "mode-btn-active-class",
+    countdownWarning: "countdown-warning-class",
+    countdownWarningValue: "countdown-warning-value-class",
+    countdownExpired: "countdown-expired-class",
   },
 }));
 
 const mockOnNewGame = vi.fn();
 const mockOnUndo = vi.fn();
 const mockOnHint = vi.fn();
+const mockOnSwitchMode = vi.fn();
 
 const renderHeader = (props = {}) => {
   const defaultProps = {
@@ -33,6 +40,8 @@ const renderHeader = (props = {}) => {
     onUndo: mockOnUndo,
     onHint: mockOnHint,
     canUndo: false,
+    gameMode: "classic" as const,
+    onSwitchMode: mockOnSwitchMode,
     ...props,
   };
 
@@ -180,6 +189,8 @@ describe("Header Component", () => {
           onUndo={mockOnUndo}
           onHint={mockOnHint}
           canUndo={false}
+          gameMode="classic"
+          onSwitchMode={mockOnSwitchMode}
         />,
       );
 
@@ -196,6 +207,8 @@ describe("Header Component", () => {
           onUndo={mockOnUndo}
           onHint={mockOnHint}
           canUndo={false}
+          gameMode="classic"
+          onSwitchMode={mockOnSwitchMode}
         />,
       );
 
@@ -212,6 +225,8 @@ describe("Header Component", () => {
           moveCount={0}
           onNewGame={mockOnNewGame}
           sessionKey={1}
+          gameMode="classic"
+          onSwitchMode={mockOnSwitchMode}
         />,
       );
 
@@ -226,6 +241,8 @@ describe("Header Component", () => {
           moveCount={0}
           onNewGame={mockOnNewGame}
           sessionKey={2}
+          gameMode="classic"
+          onSwitchMode={mockOnSwitchMode}
         />,
       );
 
@@ -316,7 +333,15 @@ describe("Header Component", () => {
 
   describe("Edge Cases", () => {
     it("should handle undefined callback props gracefully", () => {
-      render(<Header completed={0} moveCount={0} onNewGame={mockOnNewGame} />);
+      render(
+        <Header
+          completed={0}
+          moveCount={0}
+          onNewGame={mockOnNewGame}
+          gameMode="classic"
+          onSwitchMode={mockOnSwitchMode}
+        />,
+      );
 
       // Should not throw errors when optional callbacks are undefined
       const undoButton = screen.getByText("↩️ Undo");

@@ -7,12 +7,14 @@ interface CardBoardBottomProps {
   game: GameState;
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   stockDecks: Card[][];
+  disabled?: boolean;
 }
 
 const CardBoardBottom: React.FC<CardBoardBottomProps> = ({
   game,
   setGame,
   stockDecks,
+  disabled = false,
 }) => {
   return (
     <div className={styles.bottomCardBoard}>
@@ -23,6 +25,7 @@ const CardBoardBottom: React.FC<CardBoardBottomProps> = ({
           setGame={setGame}
           deck={stockDeck}
           index={index}
+          disabled={disabled}
         />
       ))}
     </div>

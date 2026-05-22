@@ -14,6 +14,7 @@ interface CardProps {
   game: GameState;
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deckIndex: number;
+  disabled?: boolean;
 }
 
 const Card: React.FC<CardProps> = ({
@@ -22,11 +23,12 @@ const Card: React.FC<CardProps> = ({
   game,
   setGame,
   deckIndex,
+  disabled = false,
 }) => {
   if (!data || !data.rank) return null;
 
   const column = game.decks[deckIndex] ?? [];
-  const canDrag = !data.isDown && isValidDescendingRun(column, index);
+  const canDrag = !disabled && !data.isDown && isValidDescendingRun(column, index);
 
   let mouseX: number;
   let mouseY: number;
