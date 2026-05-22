@@ -26,7 +26,8 @@ const Card: React.FC<CardProps> = ({
   if (!data || !data.rank) return null;
 
   const column = game.decks[deckIndex] ?? [];
-  const canDrag = !data.isDown && isValidDescendingRun(column, index);
+  const isDisabled = game.isGameOver || game.isPaused;
+  const canDrag = !isDisabled && !data.isDown && isValidDescendingRun(column, index);
 
   let mouseX: number;
   let mouseY: number;
@@ -213,8 +214,8 @@ const Card: React.FC<CardProps> = ({
       data-deck-index={deckIndex.toString()}
       data-isdown={data.isDown.toString()}
       data-index={index.toString()}
-      className={styles.card}
-      style={{ top: index * 30 }}
+      className={`${styles.card} ${isDisabled ? styles.disabled : ''}`}
+      style={{ top: index * 30, cursor: isDisabled ? 'not-allowed' : undefined }}
     />
   );
 };

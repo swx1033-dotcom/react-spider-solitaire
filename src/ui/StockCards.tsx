@@ -16,13 +16,14 @@ const StockCards: React.FC<StockCardsProps> = ({
   deck,
 }) => {
   const [isShown, setIsShown] = useState<boolean>(true);
+  const isDisabled = game.isGameOver || game.isPaused;
 
   useEffect(() => {
     setIsShown(true);
   }, [game.decks]);
 
   const handleCardSplit = (): void => {
-    if (!deck || deck.length === 0) return;
+    if (isDisabled || !deck || deck.length === 0) return;
 
     const tempDecks = game.decks.map((col) => [...col]);
 
@@ -53,21 +54,21 @@ const StockCards: React.FC<StockCardsProps> = ({
     <>
       {isShown && (
         <div
-          className={styles.stockDeck}
+          className={`${styles.stockDeck} ${isDisabled ? styles.disabled : ''}`}
           data-index={index.toString()}
           data-stock-remaining={remainingStockPiles}
           role="button"
-          tabIndex={0}
-          title={`Deal one face-up card to each column (${deck.length} in this pile, ${remainingStockPiles} stock pile(s) left)`}
-          aria-label={`Deal row from stock pile ${index + 1}, ${deck.length} cards in pile`}
+          tabIndex={isDisabled ? -1 : 0}
+          title={isDisabled ? "Game is paused or over" : `Deal one face-up card to each column (${deck.length} in this pile, ${remainingStockPiles} stock pile(s) left)`}
+          aria-label={isDisabled ? "Game is paused or over" : `Deal row from stock pile ${index + 1}, ${deck.length} cards in pile`}
           onClick={handleCardSplit}
           onKeyDown={(e) => {
-            if (e.key === "Enter" || e.key === " ") {
+            if (!isDisabled && (e.key === "Enter" || e.key === " ")) {
               e.preventDefault();
               handleCardSplit();
             }
           }}
-          style={{ cursor: "pointer" }}
+          style={{ cursor: isDisabled ? "not-allowed" : "pointer", opacity: isDisabled ? 0.5 : 1 }}
         />
       )}
     </>

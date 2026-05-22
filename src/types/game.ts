@@ -1,3 +1,5 @@
+export type GameMode = "classic" | "timed";
+
 export interface Card {
   rank: string;
   isDown: boolean;
@@ -8,7 +10,13 @@ export interface GameState {
   decks: Card[][];
   completed: number;
   moveCount: number;
+  shuffleCount: number;
+  mode: GameMode;
+  isPaused: boolean;
+  isGameOver: boolean;
 }
+
+export const MAX_SHUFFLE_COUNT = 3;
 
 export interface GameInit {
   decks: Card[][];

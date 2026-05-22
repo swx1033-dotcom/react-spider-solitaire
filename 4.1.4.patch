@@ -1,0 +1,495 @@
+diff --git a/src/types/game.ts b/src/types/game.ts
+index f25296b..75eeaa8 100644
+--- a/src/types/game.ts
++++ b/src/types/game.ts
+@@ -1,3 +1,5 @@
++export type GameMode = "classic" | "timed";
++
+ export interface Card {
+   rank: string;
+   isDown: boolean;
+@@ -8,8 +10,14 @@ export interface GameState {
+   decks: Card[][];
+   completed: number;
+   moveCount: number;
++  shuffleCount: number;
++  mode: GameMode;
++  isPaused: boolean;
++  isGameOver: boolean;
+ }
+ 
++export const MAX_SHUFFLE_COUNT = 3;
++
+ export interface GameInit {
+   decks: Card[][];
+   cards: Card[];
+diff --git a/src/ui/Card.tsx b/src/ui/Card.tsx
+index e729170..4f31b23 100644
+--- a/src/ui/Card.tsx
++++ b/src/ui/Card.tsx
+@@ -26,7 +26,8 @@ const Card: React.FC<CardProps> = ({
+   if (!data || !data.rank) return null;
+ 
+   const column = game.decks[deckIndex] ?? [];
+-  const canDrag = !data.isDown && isValidDescendingRun(column, index);
++  const isDisabled = game.isGameOver || game.isPaused;
++  const canDrag = !isDisabled && !data.isDown && isValidDescendingRun(column, index);
+ 
+   let mouseX: number;
+   let mouseY: number;
+@@ -213,8 +214,8 @@ const Card: React.FC<CardProps> = ({
+       data-deck-index={deckIndex.toString()}
+       data-isdown={data.isDown.toString()}
+       data-index={index.toString()}
+-      className={styles.card}
+-      style={{ top: index * 30 }}
++      className={`${styles.card} ${isDisabled ? styles.disabled : ''}`}
++      style={{ top: index * 30, cursor: isDisabled ? 'not-allowed' : undefined }}
+     />
+   );
+ };
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..288c9e5 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -1,16 +1,20 @@
+-import React, { useState, useEffect, useRef } from "react";
++import React, { useState, useEffect, useRef, useCallback } from "react";
+ import { initiateGame, findGameHint } from "../utils/game";
+ import CardHolder from "./CardHolder";
+ import styles from "../styles/CardBoard.module.css";
+-import Header from "./Header";
++import Header, { GameMode } from "./Header";
+ import CardBoardBottom from "./CardBoardBottom";
+ import { GameState } from "../types/game";
+-import { showInfo, showWonPopup } from "../utils/toaster";
++import { showInfo, showWonPopup, showTimeoutPopup } from "../utils/toaster";
+ 
+ const cloneGameState = (g: GameState): GameState => ({
+   completed: g.completed,
+   moveCount: g.moveCount,
++  shuffleCount: g.shuffleCount,
+   decks: g.decks.map((col) => col.map((c) => ({ ...c }))),
++  mode: g.mode,
++  isPaused: g.isPaused,
++  isGameOver: g.isGameOver,
+ });
+ 
+ const CardBoard: React.FC = () => {
+@@ -18,46 +22,84 @@ const CardBoard: React.FC = () => {
+     decks: [],
+     completed: 0,
+     moveCount: 0,
++    shuffleCount: 0,
++    mode: "classic",
++    isPaused: false,
++    isGameOver: false,
+   });
+   const [, setGameHistory] = useState<GameState[]>([]);
+   const [canUndo, setCanUndo] = useState<boolean>(false);
+   const [gameKey, setGameKey] = useState<number>(0);
++  const [remainingTimeAtWin, setRemainingTimeAtWin] = useState<number | undefined>();
+   const winPopupScheduledRef = useRef(false);
+ 
+   useEffect(() => {
+-    startNewGame();
++    startNewGame("classic");
+   }, []);
+ 
+   useEffect(() => {
+-    if (game.completed < 8) {
++    if (game.completed < 8 || game.isGameOver) {
+       winPopupScheduledRef.current = false;
+       return;
+     }
+     if (winPopupScheduledRef.current) return;
+     winPopupScheduledRef.current = true;
++    
++    // Mark game as over
++    setGame(prev => ({ ...prev, isGameOver: true }));
++    
+     const t = window.setTimeout(() => {
+       showWonPopup(() => {
+         winPopupScheduledRef.current = false;
+-        startNewGame();
+-      });
++        startNewGame(game.mode);
++      }, undefined);
+     }, 500);
+     return () => window.clearTimeout(t);
+-  }, [game.completed]);
++  }, [game.completed, game.isGameOver, game.mode, startNewGame]);
+ 
+-  const startNewGame = (): void => {
+-    const init = initiateGame();
++  const startNewGame = useCallback((mode: GameMode = "classic"): void => {
++    const init = initiateGame(mode);
+     const newGameState: GameState = {
+       decks: init.decks,
+       completed: 0,
+       moveCount: 0,
++      shuffleCount: 0,
++      mode: mode,
++      isPaused: false,
++      isGameOver: false,
+     };
+     setGame(newGameState);
+     setGameHistory([]);
+     setCanUndo(false);
++    setRemainingTimeAtWin(undefined);
+     setGameKey((prev) => prev + 1);
+-  };
++  }, []);
++
++  const handleModeChange = useCallback((newMode: GameMode): void => {
++    if (newMode !== game.mode) {
++      startNewGame(newMode);
++    }
++  }, [game.mode, startNewGame]);
++
++  const handlePauseToggle = useCallback((): void => {
++    setGame(prev => ({
++      ...prev,
++      isPaused: !prev.isPaused,
++    }));
++  }, []);
++
++  const handleTimeout = useCallback((): void => {
++    setGame(prev => ({
++      ...prev,
++      isGameOver: true,
++    }));
++    showTimeoutPopup(() => {
++      startNewGame(game.mode);
++    });
++  }, [game.mode, startNewGame]);
+ 
+   const handleUndo = (): void => {
++    if (game.isGameOver || game.isPaused) return;
+     setGameHistory((prev) => {
+       if (prev.length === 0) return prev;
+       const previousState = prev[prev.length - 1];
+@@ -68,12 +110,15 @@ const CardBoard: React.FC = () => {
+   };
+ 
+   const handleHint = (): void => {
++    if (game.isGameOver || game.isPaused) return;
+     showInfo(findGameHint(game.decks).text);
+   };
+ 
+   const updateGameWithHistory = (
+     next: React.SetStateAction<GameState>,
+   ): void => {
++    if (game.isGameOver || game.isPaused) return;
++    
+     setGame((prev) => {
+       const resolved = typeof next === "function" ? next(prev) : next;
+       setGameHistory((h) => [...h, cloneGameState(prev)]);
+@@ -87,10 +132,16 @@ const CardBoard: React.FC = () => {
+       <Header
+         completed={game.completed}
+         moveCount={game.moveCount}
+-        onNewGame={startNewGame}
++        onNewGame={() => startNewGame(game.mode)}
+         onUndo={handleUndo}
+         onHint={handleHint}
+         canUndo={canUndo}
++        mode={game.mode}
++        onModeChange={handleModeChange}
++        isPaused={game.isPaused}
++        onPauseToggle={handlePauseToggle}
++        isGameOver={game.isGameOver}
++        onTimeout={handleTimeout}
+         sessionKey={gameKey}
+       />
+       <div className={styles.board}>
+diff --git a/src/ui/Header.tsx b/src/ui/Header.tsx
+index 4315628..4c7c5c2 100644
+--- a/src/ui/Header.tsx
++++ b/src/ui/Header.tsx
+@@ -1,6 +1,9 @@
+ import React, { useState, useEffect } from "react";
+ import styles from "../styles/Header.module.css";
+ 
++export type GameMode = "classic" | "timed";
++const TIMED_MODE_DURATION = 5 * 60; // 5 minutes in seconds
++
+ interface HeaderProps {
+   completed: number;
+   moveCount: number;
+@@ -8,6 +11,12 @@ interface HeaderProps {
+   onUndo?: () => void;
+   onHint?: () => void;
+   canUndo?: boolean;
++  mode: GameMode;
++  onModeChange: (mode: GameMode) => void;
++  isPaused: boolean;
++  onPauseToggle: () => void;
++  isGameOver: boolean;
++  onTimeout?: () => void;
+   /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
+   sessionKey?: number;
+ }
+@@ -19,28 +28,55 @@ const Header: React.FC<HeaderProps> = ({
+   onUndo,
+   onHint,
+   canUndo = false,
++  mode,
++  onModeChange,
++  isPaused,
++  onPauseToggle,
++  isGameOver,
++  onTimeout,
+   sessionKey = 0,
+ }) => {
+   const [timer, setTimer] = useState<number>(0);
+-  const [isRunning, setIsRunning] = useState<boolean>(true);
++  const [countdown, setCountdown] = useState<number>(TIMED_MODE_DURATION);
+ 
++  // Classic mode timer (increments)
+   useEffect(() => {
+     let interval: number;
+-    if (isRunning) {
++    if (mode === "classic" && !isPaused && !isGameOver) {
+       interval = setInterval(() => {
+         setTimer((prev) => prev + 1);
+       }, 1000);
+     }
+     return () => clearInterval(interval);
+-  }, [isRunning]);
++  }, [mode, isPaused, isGameOver]);
++
++  // Timed mode countdown (decrements)
++  useEffect(() => {
++    let interval: number;
++    if (mode === "timed" && !isPaused && !isGameOver && countdown > 0) {
++      interval = setInterval(() => {
++        setCountdown((prev) => {
++          if (prev <= 1) {
++            onTimeout?.();
++            return 0;
++          }
++          return prev - 1;
++        });
++      }, 1000);
++    }
++    return () => clearInterval(interval);
++  }, [mode, isPaused, isGameOver, countdown, onTimeout]);
+ 
+   useEffect(() => {
+-    if (completed === 8) setIsRunning(false);
++    if (completed === 8) {
++      // Game won, stop timers
++    }
+   }, [completed]);
+ 
+   useEffect(() => {
++    // Reset timers when session changes
+     setTimer(0);
+-    setIsRunning(true);
++    setCountdown(TIMED_MODE_DURATION);
+   }, [sessionKey]);
+ 
+   const formatTime = (seconds: number): string => {
+@@ -57,10 +93,16 @@ const Header: React.FC<HeaderProps> = ({
+ 
+   const handleNewGame = (): void => {
+     setTimer(0);
+-    setIsRunning(true);
++    setCountdown(TIMED_MODE_DURATION);
+     onNewGame();
+   };
+ 
++  const handleModeChange = (newMode: GameMode): void => {
++    if (newMode !== mode) {
++      onModeChange(newMode);
++    }
++  };
++
+   const isGameCompleted = completed === 8;
+ 
+   return (
+@@ -99,20 +141,47 @@ const Header: React.FC<HeaderProps> = ({
+             <span className={styles.statLabel}>Moves:</span>
+             <span className={styles.statValue}>{moveCount}</span>
+           </div>
+-          <div className={styles.statItem}>
+-            <span className={styles.statLabel}>Time:</span>
+-            <span className={styles.statValue}>{formatTime(timer)}</span>
+-          </div>
++          {mode === "classic" && (
++            <div className={styles.statItem}>
++              <span className={styles.statLabel}>Time:</span>
++              <span className={styles.statValue}>{formatTime(timer)}</span>
++            </div>
++          )}
++          {mode === "timed" && (
++            <div className={styles.statItem}>
++              <span className={styles.statLabel}>Time Left:</span>
++              <span className={`${styles.statValue} ${countdown < 60 ? 'warning' : ''}`}>
++                {formatTime(countdown)}
++              </span>
++            </div>
++          )}
+         </div>
+       </div>
+       <div className={styles.rightSection}>
++        <div className={styles.modeToggle}>
++          <button
++            type="button"
++            className={`${styles.btn} ${styles.smallBtn} ${mode === "classic" ? styles.active : ""}`}
++            onClick={() => handleModeChange("classic")}
++          >
++            Classic
++          </button>
++          <button
++            type="button"
++            className={`${styles.btn} ${styles.smallBtn} ${mode === "timed" ? styles.active : ""}`}
++            onClick={() => handleModeChange("timed")}
++          >
++            Timed
++          </button>
++        </div>
+         <button
+           type="button"
+           className={`${styles.btn} ${styles.iconBtn}`}
+-          onClick={() => setIsRunning(!isRunning)}
+-          title={isRunning ? "Pause Timer" : "Resume Timer"}
++          onClick={onPauseToggle}
++          title={isPaused ? "Resume" : "Pause"}
++          disabled={isGameOver}
+         >
+-          {isRunning ? "⏸️" : "▶️"}
++          {isPaused ? "▶️" : "⏸️"}
+         </button>
+       </div>
+     </div>
+diff --git a/src/ui/StockCards.tsx b/src/ui/StockCards.tsx
+index e1a6645..437708b 100644
+--- a/src/ui/StockCards.tsx
++++ b/src/ui/StockCards.tsx
+@@ -16,13 +16,14 @@ const StockCards: React.FC<StockCardsProps> = ({
+   deck,
+ }) => {
+   const [isShown, setIsShown] = useState<boolean>(true);
++  const isDisabled = game.isGameOver || game.isPaused;
+ 
+   useEffect(() => {
+     setIsShown(true);
+   }, [game.decks]);
+ 
+   const handleCardSplit = (): void => {
+-    if (!deck || deck.length === 0) return;
++    if (isDisabled || !deck || deck.length === 0) return;
+ 
+     const tempDecks = game.decks.map((col) => [...col]);
+ 
+@@ -53,21 +54,21 @@ const StockCards: React.FC<StockCardsProps> = ({
+     <>
+       {isShown && (
+         <div
+-          className={styles.stockDeck}
++          className={`${styles.stockDeck} ${isDisabled ? styles.disabled : ''}`}
+           data-index={index.toString()}
+           data-stock-remaining={remainingStockPiles}
+           role="button"
+-          tabIndex={0}
+-          title={`Deal one face-up card to each column (${deck.length} in this pile, ${remainingStockPiles} stock pile(s) left)`}
+-          aria-label={`Deal row from stock pile ${index + 1}, ${deck.length} cards in pile`}
++          tabIndex={isDisabled ? -1 : 0}
++          title={isDisabled ? "Game is paused or over" : `Deal one face-up card to each column (${deck.length} in this pile, ${remainingStockPiles} stock pile(s) left)`}
++          aria-label={isDisabled ? "Game is paused or over" : `Deal row from stock pile ${index + 1}, ${deck.length} cards in pile`}
+           onClick={handleCardSplit}
+           onKeyDown={(e) => {
+-            if (e.key === "Enter" || e.key === " ") {
++            if (!isDisabled && (e.key === "Enter" || e.key === " ")) {
+               e.preventDefault();
+               handleCardSplit();
+             }
+           }}
+-          style={{ cursor: "pointer" }}
++          style={{ cursor: isDisabled ? "not-allowed" : "pointer", opacity: isDisabled ? 0.5 : 1 }}
+         />
+       )}
+     </>
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..3844e48 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -20,7 +20,7 @@ const cardInfo = {
+   value: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+ };
+ 
+-export const initiateGame = (): GameInit => {
++export const initiateGame = (_mode?: "classic" | "timed"): GameInit => {
+   let cards: Card[] = [],
+     decks: Card[][];
+ 
+diff --git a/src/utils/toaster.ts b/src/utils/toaster.ts
+index 2299732..eeba799 100644
+--- a/src/utils/toaster.ts
++++ b/src/utils/toaster.ts
+@@ -24,7 +24,13 @@ export const showInfo = (message: string): void => {
+   });
+ };
+ 
+-export const showWonPopup = (restart: () => void): void => {
++export const showWonPopup = (restart: () => void, remainingTime?: number): void => {
++  const remainingTimeText = remainingTime 
++    ? `<p style="color: #4a7c59; font-size: 16px; margin-bottom: 10px;">
++        Remaining Time: ${Math.floor(remainingTime / 60)}:${(remainingTime % 60).toString().padStart(2, '0')}
++       </p>` 
++    : '';
++    
+   Swal.fire({
+     title: "🎉 Congratulations! 🎉",
+     html: `
+@@ -33,6 +39,7 @@ export const showWonPopup = (restart: () => void): void => {
+ 				<p style="color: #4a7c59; font-size: 18px; margin-bottom: 15px;">
+ 					You've successfully completed all 8 sets!
+ 				</p>
++        ${remainingTimeText}
+ 				<div style="font-size: 24px; margin: 20px 0;">
+ 					🃏 🃏 🃏 🃏 🃏 🃏 🃏 🃏
+ 				</div>
+@@ -60,3 +67,40 @@ export const showWonPopup = (restart: () => void): void => {
+     }
+   });
+ };
++
++export const showTimeoutPopup = (restart: () => void): void => {
++  Swal.fire({
++    title: "⏰ Time's Up! ⏰",
++    html: `
++			<div style="text-align: center;">
++				<h2 style="color: #d32f2f; margin-bottom: 20px;">Game Over!</h2>
++				<p style="color: #e53935; font-size: 18px; margin-bottom: 15px;">
++					You didn't complete the game in time.
++				</p>
++				<div style="font-size: 24px; margin: 20px 0;">
++					⏰ ⏰ ⏰
++				</div>
++				<p style="color: #666; font-size: 14px;">
++					Want to try again?
++				</p>
++			</div>
++		`,
++    icon: "error",
++    showCancelButton: true,
++    confirmButtonText: "Try Again",
++    cancelButtonText: "Close",
++    confirmButtonColor: "#d32f2f",
++    cancelButtonColor: "#6c757d",
++    showCloseButton: true,
++    allowOutsideClick: false,
++    customClass: {
++      popup: "swal2-custom-popup",
++      title: "swal2-custom-title",
++      htmlContainer: "swal2-custom-html",
++    },
++  }).then((result) => {
++    if (result.isConfirmed) {
++      restart();
++    }
++  });
++};
