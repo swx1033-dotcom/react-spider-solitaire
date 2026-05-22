@@ -1,5 +1,24 @@
 import Swal from "sweetalert2";
 
+export const showShufflePrompt = (
+  message: string,
+  onShuffle: () => void,
+): void => {
+  Swal.fire({
+    title: "Reshuffle?",
+    text: message,
+    icon: "question",
+    showCancelButton: true,
+    confirmButtonText: "Reshuffle",
+    cancelButtonText: "Cancel",
+    confirmButtonColor: "#2d5a27",
+  }).then((result) => {
+    if (result.isConfirmed) {
+      onShuffle();
+    }
+  });
+};
+
 export const showError = (message: string = "Invalid Operation!"): void => {
   Swal.fire({
     icon: "error",

@@ -1,15 +1,22 @@
 import React, { useState, useEffect, useRef } from "react";
-import { initiateGame, findGameHint } from "../utils/game";
+import {
+  initiateGame,
+  findGameHint,
+  hasAnyLegalMove,
+  isStockEmpty,
+  shuffleTableau,
+} from "../utils/game";
 import CardHolder from "./CardHolder";
 import styles from "../styles/CardBoard.module.css";
 import Header from "./Header";
 import CardBoardBottom from "./CardBoardBottom";
-import { GameState } from "../types/game";
-import { showInfo, showWonPopup } from "../utils/toaster";
+import { GameState, MAX_SHUFFLE_COUNT } from "../types/game";
+import { showInfo, showWonPopup, showShufflePrompt } from "../utils/toaster";
 
 const cloneGameState = (g: GameState): GameState => ({
   completed: g.completed,
   moveCount: g.moveCount,
+  shuffleCount: g.shuffleCount,
   decks: g.decks.map((col) => col.map((c) => ({ ...c }))),
 });
 
@@ -18,11 +25,14 @@ const CardBoard: React.FC = () => {
     decks: [],
     completed: 0,
     moveCount: 0,
+    shuffleCount: MAX_SHUFFLE_COUNT,
   });
   const [, setGameHistory] = useState<GameState[]>([]);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [gameKey, setGameKey] = useState<number>(0);
   const winPopupScheduledRef = useRef(false);
+  const deadlockPromptShownRef = useRef(false);
+  const isInitialLoadRef = useRef(true);
 
   useEffect(() => {
     startNewGame();
@@ -44,17 +54,43 @@ const CardBoard: React.FC = () => {
     return () => window.clearTimeout(t);
   }, [game.completed]);
 
+  useEffect(() => {
+    if (isInitialLoadRef.current) {
+      isInitialLoadRef.current = false;
+      return;
+    }
+    if (game.completed >= 8) return;
+    if (game.decks.length === 0) return;
+    if (deadlockPromptShownRef.current) return;
+
+    const noMoves = !hasAnyLegalMove(game.decks);
+    const stockEmpty = isStockEmpty(game.decks);
+
+    if (noMoves && stockEmpty) {
+      deadlockPromptShownRef.current = true;
+      showShufflePrompt(
+        "无可用移动，是否重新洗牌并保留当前进度？",
+        () => {
+          handleShuffle();
+        },
+      );
+    }
+  }, [game]);
+
   const startNewGame = (): void => {
     const init = initiateGame();
     const newGameState: GameState = {
       decks: init.decks,
       completed: 0,
       moveCount: 0,
+      shuffleCount: MAX_SHUFFLE_COUNT,
     };
     setGame(newGameState);
     setGameHistory([]);
     setCanUndo(false);
     setGameKey((prev) => prev + 1);
+    deadlockPromptShownRef.current = false;
+    isInitialLoadRef.current = true;
   };
 
   const handleUndo = (): void => {
@@ -69,6 +105,20 @@ const CardBoard: React.FC = () => {
 
   const handleHint = (): void => {
     showInfo(findGameHint(game.decks).text);
+  };
+
+  const handleShuffle = (): void => {
+    if (game.shuffleCount <= 0) return;
+    const shuffledDecks = shuffleTableau(game.decks);
+    setGame((prev) => ({
+      ...prev,
+      decks: [...shuffledDecks, ...prev.decks.slice(10)],
+      shuffleCount: prev.shuffleCount - 1,
+      moveCount: prev.moveCount + 1,
+    }));
+    setGameHistory([]);
+    setCanUndo(false);
+    deadlockPromptShownRef.current = false;
   };
 
   const updateGameWithHistory = (
@@ -92,6 +142,16 @@ const CardBoard: React.FC = () => {
         onHint={handleHint}
         canUndo={canUndo}
         sessionKey={gameKey}
+        onShuffle={() => {
+          if (game.shuffleCount <= 0) return;
+          showShufflePrompt(
+            "Reshuffle the tableau? This will clear your undo history.",
+            () => {
+              handleShuffle();
+            },
+          );
+        }}
+        shuffleRemaining={game.shuffleCount}
       />
       <div className={styles.board}>
         {game.decks.slice(0, 10).map((deck, index) => (

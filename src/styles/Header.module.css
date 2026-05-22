@@ -113,6 +113,14 @@
   background: linear-gradient(145deg, #6a8c4a, #5a7c3a);
 }
 
+.shuffleBtn {
+  background: linear-gradient(145deg, #7a5c3a, #6a4b2d);
+}
+
+.shuffleBtn:hover {
+  background: linear-gradient(145deg, #8a6c4a, #7a5c3a);
+}
+
 .disabled {
   opacity: 0.5;
   cursor: not-allowed;

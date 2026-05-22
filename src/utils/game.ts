@@ -193,3 +193,64 @@ export const findGameHint = (decks: Card[][]): GameHint => {
     text: "No obvious move — try Undo or a different stack, or start a New Game.",
   };
 };
+
+export const isStockEmpty = (decks: Card[][]): boolean => {
+  return decks.slice(10, 15).every((d) => (d?.length ?? 0) === 0);
+};
+
+export const hasAnyLegalMove = (decks: Card[][]): boolean => {
+  const columns = decks.slice(0, 10);
+
+  for (let from = 0; from < 10; from++) {
+    const col = columns[from];
+    if (!col || col.length === 0) continue;
+
+    const runStartCandidates: number[] = [];
+    for (let i = 0; i < col.length; i++) {
+      if (!col[i].isDown && isValidDescendingRun(col, i)) {
+        runStartCandidates.push(i);
+      }
+    }
+
+    for (const start of runStartCandidates) {
+      const mover = col[start];
+      const moverRank = getRank(mover.rank);
+
+      for (let to = 0; to < 10; to++) {
+        if (to === from) continue;
+        const targetCol = columns[to];
+        if (!targetCol) continue;
+
+        if (targetCol.length === 0) return true;
+
+        const targetTop = targetCol[targetCol.length - 1];
+        if (targetTop.isDown) continue;
+        if (moverRank === getRank(targetTop.rank) - 1) return true;
+      }
+    }
+  }
+
+  return false;
+};
+
+export const shuffleTableau = (decks: Card[][]): Card[][] => {
+  const columnSizes: number[] = [];
+  const allCards: Card[] = [];
+
+  for (let i = 0; i < 10; i++) {
+    const col = decks[i] ?? [];
+    columnSizes.push(col.length);
+    allCards.push(...col.map((c) => ({ ...c, isDown: false })));
+  }
+
+  const shuffled = _.shuffle(allCards);
+
+  const newDecks: Card[][] = [];
+  let offset = 0;
+  for (let i = 0; i < 10; i++) {
+    newDecks.push(shuffled.slice(offset, offset + columnSizes[i]));
+    offset += columnSizes[i];
+  }
+
+  return newDecks;
+};

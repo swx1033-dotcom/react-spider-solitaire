@@ -8,8 +8,9 @@ interface HeaderProps {
   onUndo?: () => void;
   onHint?: () => void;
   canUndo?: boolean;
-  /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
   sessionKey?: number;
+  onShuffle?: () => void;
+  shuffleRemaining?: number;
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -20,6 +21,8 @@ const Header: React.FC<HeaderProps> = ({
   onHint,
   canUndo = false,
   sessionKey = 0,
+  onShuffle,
+  shuffleRemaining = 0,
 }) => {
   const [timer, setTimer] = useState<number>(0);
   const [isRunning, setIsRunning] = useState<boolean>(true);
@@ -81,6 +84,21 @@ const Header: React.FC<HeaderProps> = ({
         </button>
         <button type="button" className={styles.btn} onClick={() => onHint?.()}>
           💡 Hint
+        </button>
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.shuffleBtn} ${
+            shuffleRemaining <= 0 ? styles.disabled : ""
+          }`}
+          onClick={() => onShuffle?.()}
+          disabled={shuffleRemaining <= 0}
+          title={
+            shuffleRemaining > 0
+              ? `Reshuffle (${shuffleRemaining} left)`
+              : "No reshuffles left"
+          }
+        >
+          🔀 Shuffle ({shuffleRemaining})
         </button>
       </div>
       <div className={styles.centerSection}>
