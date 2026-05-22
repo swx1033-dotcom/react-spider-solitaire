@@ -1,6 +1,8 @@
 import _ from "lodash";
 import type { Card, GameInit, CardRank } from "../types/game";
 
+export type GameMode = "classic" | "timed";
+
 const cardInfo = {
   rank: [
     "A",
@@ -20,7 +22,7 @@ const cardInfo = {
   value: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
 };
 
-export const initiateGame = (): GameInit => {
+export const initiateGame = (mode: GameMode = "classic"): GameInit => {
   let cards: Card[] = [],
     decks: Card[][];
 

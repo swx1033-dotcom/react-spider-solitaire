@@ -1,15 +1,21 @@
 import React, { useState, useEffect } from "react";
 import styles from "../styles/Header.module.css";
+import { GameMode } from "../utils/game";
 
 interface HeaderProps {
   completed: number;
   moveCount: number;
-  onNewGame: () => void;
+  onNewGame: (mode?: GameMode) => void;
   onUndo?: () => void;
   onHint?: () => void;
   canUndo?: boolean;
-  /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
   sessionKey?: number;
+  gameMode?: GameMode;
+  onModeSwitch?: (mode: GameMode) => void;
+  timeRemaining?: number;
+  isTimerRunning?: boolean;
+  isGameOver?: boolean;
+  onToggleTimer?: () => void;
 }
 
 const Header: React.FC<HeaderProps> = ({
@@ -20,19 +26,26 @@ const Header: React.FC<HeaderProps> = ({
   onHint,
   canUndo = false,
   sessionKey = 0,
+  gameMode = "classic",
+  onModeSwitch,
+  timeRemaining = 0,
+  isTimerRunning = true,
+  isGameOver = false,
+  onToggleTimer,
 }) => {
   const [timer, setTimer] = useState<number>(0);
   const [isRunning, setIsRunning] = useState<boolean>(true);
+  const [localGameMode, setLocalGameMode] = useState<GameMode>(gameMode);
 
   useEffect(() => {
     let interval: number;
-    if (isRunning) {
+    if (isRunning && localGameMode === "classic") {
       interval = setInterval(() => {
         setTimer((prev) => prev + 1);
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isRunning]);
+  }, [isRunning, localGameMode]);
 
   useEffect(() => {
     if (completed === 8) setIsRunning(false);
@@ -41,7 +54,12 @@ const Header: React.FC<HeaderProps> = ({
   useEffect(() => {
     setTimer(0);
     setIsRunning(true);
-  }, [sessionKey]);
+    setLocalGameMode(gameMode);
+  }, [sessionKey, gameMode]);
+
+  useEffect(() => {
+    setIsRunning(isTimerRunning);
+  }, [isTimerRunning]);
 
   const formatTime = (seconds: number): string => {
     const hours = Math.floor(seconds / 3600);
@@ -55,17 +73,45 @@ const Header: React.FC<HeaderProps> = ({
     return `${minutes}:${secs.toString().padStart(2, "0")}`;
   };
 
+  const formatCountdown = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, "0")}`;
+  };
+
   const handleNewGame = (): void => {
     setTimer(0);
     setIsRunning(true);
-    onNewGame();
+    onNewGame(localGameMode);
   };
 
+  const handleModeSwitch = (mode: GameMode): void => {
+    setLocalGameMode(mode);
+    onModeSwitch?.(mode);
+  };
+
+  const isTimedMode = localGameMode === "timed";
   const isGameCompleted = completed === 8;
 
   return (
     <div className={styles.header}>
       <div className={styles.leftSection}>
+        <div className={styles.modeSwitch}>
+          <button
+            type="button"
+            className={`${styles.modeBtn} ${!isTimedMode ? styles.activeMode : ""}`}
+            onClick={() => handleModeSwitch("classic")}
+          >
+            经典模式
+          </button>
+          <button
+            type="button"
+            className={`${styles.modeBtn} ${isTimedMode ? styles.activeMode : ""}`}
+            onClick={() => handleModeSwitch("timed")}
+          >
+            限时挑战
+          </button>
+        </div>
         <button type="button" className={styles.btn} onClick={handleNewGame}>
           🎮 New Game
         </button>
@@ -100,8 +146,10 @@ const Header: React.FC<HeaderProps> = ({
             <span className={styles.statValue}>{moveCount}</span>
           </div>
           <div className={styles.statItem}>
-            <span className={styles.statLabel}>Time:</span>
-            <span className={styles.statValue}>{formatTime(timer)}</span>
+            <span className={styles.statLabel}>{isTimedMode ? "倒计时" : "Time"}:</span>
+            <span className={`${styles.statValue} ${isTimedMode ? styles.countdown : ""}`}>
+              {isTimedMode ? formatCountdown(timeRemaining) : formatTime(timer)}
+            </span>
           </div>
         </div>
       </div>
@@ -109,10 +157,10 @@ const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           className={`${styles.btn} ${styles.iconBtn}`}
-          onClick={() => setIsRunning(!isRunning)}
-          title={isRunning ? "Pause Timer" : "Resume Timer"}
+          onClick={() => onToggleTimer?.()}
+          title={isTimerRunning ? "Pause Timer" : "Resume Timer"}
         >
-          {isRunning ? "⏸️" : "▶️"}
+          {isTimerRunning ? "⏸️" : "▶️"}
         </button>
       </div>
     </div>

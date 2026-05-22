@@ -1,0 +1,435 @@
+diff --git a/src/styles/Header.module.css b/src/styles/Header.module.css
+index 2ec4223..b77a01c 100644
+--- a/src/styles/Header.module.css
++++ b/src/styles/Header.module.css
+@@ -99,6 +99,52 @@
+   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+ }
+ 
++.modeSwitch {
++  display: flex;
++  border-radius: 8px;
++  overflow: hidden;
++  border: 1px solid rgba(255, 255, 255, 0.2);
++}
++
++.modeBtn {
++  padding: 8px 12px;
++  border: none;
++  background: rgba(0, 0, 0, 0.2);
++  color: rgba(255, 255, 255, 0.7);
++  font-size: 0.8rem;
++  font-weight: 600;
++  cursor: pointer;
++  transition: all 0.3s ease;
++}
++
++.modeBtn:hover {
++  background: rgba(0, 0, 0, 0.3);
++}
++
++.modeBtn.activeMode {
++  background: linear-gradient(145deg, #ffd700, #ff8c00);
++  color: #1a3d1a;
++}
++
++.modeBtn.activeMode:hover {
++  background: linear-gradient(145deg, #ffec8b, #ffa500);
++}
++
++.statValue.countdown {
++  color: #ff6b6b;
++  animation: countdownPulse 1s infinite;
++}
++
++@keyframes countdownPulse {
++  0%,
++  100% {
++    opacity: 1;
++  }
++  50% {
++    opacity: 0.7;
++  }
++}
++
+ .iconBtn {
+   min-width: 50px;
+   font-size: 1.2rem;
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..af0b3f1 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -1,11 +1,13 @@
+ import React, { useState, useEffect, useRef } from "react";
+-import { initiateGame, findGameHint } from "../utils/game";
++import { initiateGame, findGameHint, GameMode } from "../utils/game";
+ import CardHolder from "./CardHolder";
+ import styles from "../styles/CardBoard.module.css";
+ import Header from "./Header";
+ import CardBoardBottom from "./CardBoardBottom";
+ import { GameState } from "../types/game";
+-import { showInfo, showWonPopup } from "../utils/toaster";
++import { showInfo, showWonPopup, showGameOverPopup, showTimedModeWinPopup } from "../utils/toaster";
++
++const TIMED_MODE_DURATION = 5 * 60;
+ 
+ const cloneGameState = (g: GameState): GameState => ({
+   completed: g.completed,
+@@ -22,6 +24,10 @@ const CardBoard: React.FC = () => {
+   const [, setGameHistory] = useState<GameState[]>([]);
+   const [canUndo, setCanUndo] = useState<boolean>(false);
+   const [gameKey, setGameKey] = useState<number>(0);
++  const [gameMode, setGameMode] = useState<GameMode>("classic");
++  const [timeRemaining, setTimeRemaining] = useState<number>(TIMED_MODE_DURATION);
++  const [isTimerRunning, setIsTimerRunning] = useState<boolean>(true);
++  const [isGameOver, setIsGameOver] = useState<boolean>(false);
+   const winPopupScheduledRef = useRef(false);
+ 
+   useEffect(() => {
+@@ -35,17 +41,51 @@ const CardBoard: React.FC = () => {
+     }
+     if (winPopupScheduledRef.current) return;
+     winPopupScheduledRef.current = true;
++    setIsTimerRunning(false);
+     const t = window.setTimeout(() => {
+-      showWonPopup(() => {
+-        winPopupScheduledRef.current = false;
+-        startNewGame();
+-      });
++      if (gameMode === "timed") {
++        showTimedModeWinPopup(timeRemaining, () => {
++          winPopupScheduledRef.current = false;
++          startNewGame("timed");
++        });
++      } else {
++        showWonPopup(() => {
++          winPopupScheduledRef.current = false;
++          startNewGame();
++        });
++      }
+     }, 500);
+     return () => window.clearTimeout(t);
+-  }, [game.completed]);
++  }, [game.completed, gameMode, timeRemaining]);
++
++  useEffect(() => {
++    if (gameMode !== "timed" || !isTimerRunning || isGameOver) return;
++    if (timeRemaining <= 0) {
++      setIsGameOver(true);
++      setIsTimerRunning(false);
++      showGameOverPopup(() => {
++        startNewGame();
++      });
++      return;
++    }
++    const interval = setInterval(() => {
++      setTimeRemaining((prev) => {
++        if (prev <= 1) {
++          setIsGameOver(true);
++          setIsTimerRunning(false);
++          showGameOverPopup(() => {
++            startNewGame();
++          });
++          return 0;
++        }
++        return prev - 1;
++      });
++    }, 1000);
++    return () => clearInterval(interval);
++  }, [gameMode, isTimerRunning, isGameOver, timeRemaining]);
+ 
+-  const startNewGame = (): void => {
+-    const init = initiateGame();
++  const startNewGame = (mode: GameMode = "classic"): void => {
++    const init = initiateGame(mode);
+     const newGameState: GameState = {
+       decks: init.decks,
+       completed: 0,
+@@ -55,9 +95,18 @@ const CardBoard: React.FC = () => {
+     setGameHistory([]);
+     setCanUndo(false);
+     setGameKey((prev) => prev + 1);
++    setGameMode(mode);
++    setTimeRemaining(TIMED_MODE_DURATION);
++    setIsTimerRunning(true);
++    setIsGameOver(false);
++  };
++
++  const handleModeSwitch = (mode: GameMode): void => {
++    startNewGame(mode);
+   };
+ 
+   const handleUndo = (): void => {
++    if (isGameOver) return;
+     setGameHistory((prev) => {
+       if (prev.length === 0) return prev;
+       const previousState = prev[prev.length - 1];
+@@ -68,12 +117,14 @@ const CardBoard: React.FC = () => {
+   };
+ 
+   const handleHint = (): void => {
++    if (isGameOver) return;
+     showInfo(findGameHint(game.decks).text);
+   };
+ 
+   const updateGameWithHistory = (
+     next: React.SetStateAction<GameState>,
+   ): void => {
++    if (isGameOver) return;
+     setGame((prev) => {
+       const resolved = typeof next === "function" ? next(prev) : next;
+       setGameHistory((h) => [...h, cloneGameState(prev)]);
+@@ -92,6 +143,12 @@ const CardBoard: React.FC = () => {
+         onHint={handleHint}
+         canUndo={canUndo}
+         sessionKey={gameKey}
++        gameMode={gameMode}
++        onModeSwitch={handleModeSwitch}
++        timeRemaining={timeRemaining}
++        isTimerRunning={isTimerRunning}
++        isGameOver={isGameOver}
++        onToggleTimer={() => setIsTimerRunning(!isTimerRunning)}
+       />
+       <div className={styles.board}>
+         {game.decks.slice(0, 10).map((deck, index) => (
+diff --git a/src/ui/Header.tsx b/src/ui/Header.tsx
+index 4315628..541089f 100644
+--- a/src/ui/Header.tsx
++++ b/src/ui/Header.tsx
+@@ -1,15 +1,21 @@
+ import React, { useState, useEffect } from "react";
+ import styles from "../styles/Header.module.css";
++import { GameMode } from "../utils/game";
+ 
+ interface HeaderProps {
+   completed: number;
+   moveCount: number;
+-  onNewGame: () => void;
++  onNewGame: (mode?: GameMode) => void;
+   onUndo?: () => void;
+   onHint?: () => void;
+   canUndo?: boolean;
+-  /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
+   sessionKey?: number;
++  gameMode?: GameMode;
++  onModeSwitch?: (mode: GameMode) => void;
++  timeRemaining?: number;
++  isTimerRunning?: boolean;
++  isGameOver?: boolean;
++  onToggleTimer?: () => void;
+ }
+ 
+ const Header: React.FC<HeaderProps> = ({
+@@ -20,19 +26,26 @@ const Header: React.FC<HeaderProps> = ({
+   onHint,
+   canUndo = false,
+   sessionKey = 0,
++  gameMode = "classic",
++  onModeSwitch,
++  timeRemaining = 0,
++  isTimerRunning = true,
++  isGameOver = false,
++  onToggleTimer,
+ }) => {
+   const [timer, setTimer] = useState<number>(0);
+   const [isRunning, setIsRunning] = useState<boolean>(true);
++  const [localGameMode, setLocalGameMode] = useState<GameMode>(gameMode);
+ 
+   useEffect(() => {
+     let interval: number;
+-    if (isRunning) {
++    if (isRunning && localGameMode === "classic") {
+       interval = setInterval(() => {
+         setTimer((prev) => prev + 1);
+       }, 1000);
+     }
+     return () => clearInterval(interval);
+-  }, [isRunning]);
++  }, [isRunning, localGameMode]);
+ 
+   useEffect(() => {
+     if (completed === 8) setIsRunning(false);
+@@ -41,7 +54,12 @@ const Header: React.FC<HeaderProps> = ({
+   useEffect(() => {
+     setTimer(0);
+     setIsRunning(true);
+-  }, [sessionKey]);
++    setLocalGameMode(gameMode);
++  }, [sessionKey, gameMode]);
++
++  useEffect(() => {
++    setIsRunning(isTimerRunning);
++  }, [isTimerRunning]);
+ 
+   const formatTime = (seconds: number): string => {
+     const hours = Math.floor(seconds / 3600);
+@@ -55,17 +73,45 @@ const Header: React.FC<HeaderProps> = ({
+     return `${minutes}:${secs.toString().padStart(2, "0")}`;
+   };
+ 
++  const formatCountdown = (seconds: number): string => {
++    const mins = Math.floor(seconds / 60);
++    const secs = seconds % 60;
++    return `${mins}:${secs.toString().padStart(2, "0")}`;
++  };
++
+   const handleNewGame = (): void => {
+     setTimer(0);
+     setIsRunning(true);
+-    onNewGame();
++    onNewGame(localGameMode);
+   };
+ 
++  const handleModeSwitch = (mode: GameMode): void => {
++    setLocalGameMode(mode);
++    onModeSwitch?.(mode);
++  };
++
++  const isTimedMode = localGameMode === "timed";
+   const isGameCompleted = completed === 8;
+ 
+   return (
+     <div className={styles.header}>
+       <div className={styles.leftSection}>
++        <div className={styles.modeSwitch}>
++          <button
++            type="button"
++            className={`${styles.modeBtn} ${!isTimedMode ? styles.activeMode : ""}`}
++            onClick={() => handleModeSwitch("classic")}
++          >
++            经典模式
++          </button>
++          <button
++            type="button"
++            className={`${styles.modeBtn} ${isTimedMode ? styles.activeMode : ""}`}
++            onClick={() => handleModeSwitch("timed")}
++          >
++            限时挑战
++          </button>
++        </div>
+         <button type="button" className={styles.btn} onClick={handleNewGame}>
+           🎮 New Game
+         </button>
+@@ -100,8 +146,10 @@ const Header: React.FC<HeaderProps> = ({
+             <span className={styles.statValue}>{moveCount}</span>
+           </div>
+           <div className={styles.statItem}>
+-            <span className={styles.statLabel}>Time:</span>
+-            <span className={styles.statValue}>{formatTime(timer)}</span>
++            <span className={styles.statLabel}>{isTimedMode ? "倒计时" : "Time"}:</span>
++            <span className={`${styles.statValue} ${isTimedMode ? styles.countdown : ""}`}>
++              {isTimedMode ? formatCountdown(timeRemaining) : formatTime(timer)}
++            </span>
+           </div>
+         </div>
+       </div>
+@@ -109,10 +157,10 @@ const Header: React.FC<HeaderProps> = ({
+         <button
+           type="button"
+           className={`${styles.btn} ${styles.iconBtn}`}
+-          onClick={() => setIsRunning(!isRunning)}
+-          title={isRunning ? "Pause Timer" : "Resume Timer"}
++          onClick={() => onToggleTimer?.()}
++          title={isTimerRunning ? "Pause Timer" : "Resume Timer"}
+         >
+-          {isRunning ? "⏸️" : "▶️"}
++          {isTimerRunning ? "⏸️" : "▶️"}
+         </button>
+       </div>
+     </div>
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..23d9030 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -1,6 +1,8 @@
+ import _ from "lodash";
+ import type { Card, GameInit, CardRank } from "../types/game";
+ 
++export type GameMode = "classic" | "timed";
++
+ const cardInfo = {
+   rank: [
+     "A",
+@@ -20,7 +22,7 @@ const cardInfo = {
+   value: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13],
+ };
+ 
+-export const initiateGame = (): GameInit => {
++export const initiateGame = (mode: GameMode = "classic"): GameInit => {
+   let cards: Card[] = [],
+     decks: Card[][];
+ 
+diff --git a/src/utils/toaster.ts b/src/utils/toaster.ts
+index 2299732..5413ff8 100644
+--- a/src/utils/toaster.ts
++++ b/src/utils/toaster.ts
+@@ -12,6 +12,69 @@ export const showError = (message: string = "Invalid Operation!"): void => {
+   });
+ };
+ 
++export const showGameOverPopup = (restart: () => void): void => {
++  Swal.fire({
++    title: "⏰ 时间到! ⏰",
++    html: `
++			<div style="text-align: center;">
++				<h2 style="color: #d32f2f; margin-bottom: 20px;">游戏失败</h2>
++				<p style="color: #666; font-size: 16px;">
++					时间已耗尽，请再接再厉！
++				</p>
++			</div>
++		`,
++    icon: "error",
++    showCancelButton: true,
++    confirmButtonText: "重新开始",
++    cancelButtonText: "关闭",
++    confirmButtonColor: "#2d5a27",
++    cancelButtonColor: "#6c757d",
++    showCloseButton: true,
++    allowOutsideClick: false,
++  }).then((result) => {
++    if (result.isConfirmed) {
++      restart();
++    }
++  });
++};
++
++export const showTimedModeWinPopup = (
++  remainingTime: number,
++  restart: () => void,
++): void => {
++  const minutes = Math.floor(remainingTime / 60);
++  const seconds = remainingTime % 60;
++  Swal.fire({
++    title: "🎉 恭喜通关! 🎉",
++    html: `
++			<div style="text-align: center;">
++				<h2 style="color: #2d5a27; margin-bottom: 20px;">限时挑战模式胜利!</h2>
++				<p style="color: #4a7c59; font-size: 18px; margin-bottom: 15px;">
++					你在剩余时间内完成了游戏！
++				</p>
++				<div style="font-size: 24px; margin: 20px 0;">
++					⏱️ 剩余时间: ${minutes}:${seconds.toString().padStart(2, "0")}
++				</div>
++				<p style="color: #666; font-size: 14px;">
++					准备好接受下一个挑战了吗？
++				</p>
++			</div>
++		`,
++    icon: "success",
++    showCancelButton: true,
++    confirmButtonText: "再玩一次",
++    cancelButtonText: "关闭",
++    confirmButtonColor: "#2d5a27",
++    cancelButtonColor: "#6c757d",
++    showCloseButton: true,
++    allowOutsideClick: false,
++  }).then((result) => {
++    if (result.isConfirmed) {
++      restart();
++    }
++  });
++};
++
+ export const showInfo = (message: string): void => {
+   Swal.fire({
+     icon: "info",

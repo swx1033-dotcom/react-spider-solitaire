@@ -1,11 +1,13 @@
 import React, { useState, useEffect, useRef } from "react";
-import { initiateGame, findGameHint } from "../utils/game";
+import { initiateGame, findGameHint, GameMode } from "../utils/game";
 import CardHolder from "./CardHolder";
 import styles from "../styles/CardBoard.module.css";
 import Header from "./Header";
 import CardBoardBottom from "./CardBoardBottom";
 import { GameState } from "../types/game";
-import { showInfo, showWonPopup } from "../utils/toaster";
+import { showInfo, showWonPopup, showGameOverPopup, showTimedModeWinPopup } from "../utils/toaster";
+
+const TIMED_MODE_DURATION = 5 * 60;
 
 const cloneGameState = (g: GameState): GameState => ({
   completed: g.completed,
@@ -22,6 +24,10 @@ const CardBoard: React.FC = () => {
   const [, setGameHistory] = useState<GameState[]>([]);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [gameKey, setGameKey] = useState<number>(0);
+  const [gameMode, setGameMode] = useState<GameMode>("classic");
+  const [timeRemaining, setTimeRemaining] = useState<number>(TIMED_MODE_DURATION);
+  const [isTimerRunning, setIsTimerRunning] = useState<boolean>(true);
+  const [isGameOver, setIsGameOver] = useState<boolean>(false);
   const winPopupScheduledRef = useRef(false);
 
   useEffect(() => {
@@ -35,17 +41,51 @@ const CardBoard: React.FC = () => {
     }
     if (winPopupScheduledRef.current) return;
     winPopupScheduledRef.current = true;
+    setIsTimerRunning(false);
     const t = window.setTimeout(() => {
-      showWonPopup(() => {
-        winPopupScheduledRef.current = false;
-        startNewGame();
-      });
+      if (gameMode === "timed") {
+        showTimedModeWinPopup(timeRemaining, () => {
+          winPopupScheduledRef.current = false;
+          startNewGame("timed");
+        });
+      } else {
+        showWonPopup(() => {
+          winPopupScheduledRef.current = false;
+          startNewGame();
+        });
+      }
     }, 500);
     return () => window.clearTimeout(t);
-  }, [game.completed]);
+  }, [game.completed, gameMode, timeRemaining]);
 
-  const startNewGame = (): void => {
-    const init = initiateGame();
+  useEffect(() => {
+    if (gameMode !== "timed" || !isTimerRunning || isGameOver) return;
+    if (timeRemaining <= 0) {
+      setIsGameOver(true);
+      setIsTimerRunning(false);
+      showGameOverPopup(() => {
+        startNewGame();
+      });
+      return;
+    }
+    const interval = setInterval(() => {
+      setTimeRemaining((prev) => {
+        if (prev <= 1) {
+          setIsGameOver(true);
+          setIsTimerRunning(false);
+          showGameOverPopup(() => {
+            startNewGame();
+          });
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [gameMode, isTimerRunning, isGameOver, timeRemaining]);
+
+  const startNewGame = (mode: GameMode = "classic"): void => {
+    const init = initiateGame(mode);
     const newGameState: GameState = {
       decks: init.decks,
       completed: 0,
@@ -55,9 +95,18 @@ const CardBoard: React.FC = () => {
     setGameHistory([]);
     setCanUndo(false);
     setGameKey((prev) => prev + 1);
+    setGameMode(mode);
+    setTimeRemaining(TIMED_MODE_DURATION);
+    setIsTimerRunning(true);
+    setIsGameOver(false);
+  };
+
+  const handleModeSwitch = (mode: GameMode): void => {
+    startNewGame(mode);
   };
 
   const handleUndo = (): void => {
+    if (isGameOver) return;
     setGameHistory((prev) => {
       if (prev.length === 0) return prev;
       const previousState = prev[prev.length - 1];
@@ -68,12 +117,14 @@ const CardBoard: React.FC = () => {
   };
 
   const handleHint = (): void => {
+    if (isGameOver) return;
     showInfo(findGameHint(game.decks).text);
   };
 
   const updateGameWithHistory = (
     next: React.SetStateAction<GameState>,
   ): void => {
+    if (isGameOver) return;
     setGame((prev) => {
       const resolved = typeof next === "function" ? next(prev) : next;
       setGameHistory((h) => [...h, cloneGameState(prev)]);
@@ -92,6 +143,12 @@ const CardBoard: React.FC = () => {
         onHint={handleHint}
         canUndo={canUndo}
         sessionKey={gameKey}
+        gameMode={gameMode}
+        onModeSwitch={handleModeSwitch}
+        timeRemaining={timeRemaining}
+        isTimerRunning={isTimerRunning}
+        isGameOver={isGameOver}
+        onToggleTimer={() => setIsTimerRunning(!isTimerRunning)}
       />
       <div className={styles.board}>
         {game.decks.slice(0, 10).map((deck, index) => (
