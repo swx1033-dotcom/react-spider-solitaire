@@ -120,7 +120,7 @@ describe("Card Component", () => {
       expect(container.firstChild).toBeInTheDocument();
     });
 
-    it("should not be draggable when run is invalid from this card", () => {
+    it("should be draggable for a top face-up card even when the next card is not in descending order", () => {
       const game: GameState = {
         decks: [
           [
@@ -138,7 +138,37 @@ describe("Card Component", () => {
         game,
         deckIndex: 0,
       });
-      expect(container.firstChild).toHaveAttribute("draggable", "false");
+      expect(container.firstChild).toHaveAttribute("draggable", "true");
+    });
+
+    it("should not be draggable for a card that is not at index 0", () => {
+      const game: GameState = {
+        decks: [
+          [
+            { rank: "K", isDown: false },
+            { rank: "Q", isDown: false },
+            { rank: "J", isDown: false },
+          ],
+          ...Array.from({ length: 14 }, () => []),
+        ],
+        completed: 0,
+        moveCount: 0,
+      };
+      const { container: c1 } = renderCard({
+        data: { rank: "Q", isDown: false },
+        index: 1,
+        game,
+        deckIndex: 0,
+      });
+      expect(c1.firstChild).toHaveAttribute("draggable", "false");
+
+      const { container: c2 } = renderCard({
+        data: { rank: "J", isDown: false },
+        index: 2,
+        game,
+        deckIndex: 0,
+      });
+      expect(c2.firstChild).toHaveAttribute("draggable", "false");
     });
 
     it("should be draggable for a valid descending run from this card", () => {

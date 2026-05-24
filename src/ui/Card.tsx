@@ -3,7 +3,6 @@ import {
   getRank,
   checkCompletedSet,
   isValidMove,
-  isValidDescendingRun,
 } from "../utils/game";
 import type { GameState, Card as CardType } from "../types/game";
 import styles from "../styles/Card.module.css";
@@ -26,7 +25,7 @@ const Card: React.FC<CardProps> = ({
   if (!data || !data.rank) return null;
 
   const column = game.decks[deckIndex] ?? [];
-  const canDrag = !data.isDown && isValidDescendingRun(column, index);
+  const canDrag = index === 0 && !data.isDown;
 
   let mouseX: number;
   let mouseY: number;

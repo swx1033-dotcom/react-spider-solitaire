@@ -127,13 +127,19 @@ export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
   return null;
 };
 
-/** True if from `start` through the bottom of the column is face-up and strictly descending (single-suit Spider). */
 export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
   if (start < 0 || start >= deck.length) return false;
   if (deck[start].isDown) return false;
+  if (
+    start > 0 &&
+    !deck[start - 1].isDown &&
+    getRank(deck[start - 1].rank) === getRank(deck[start].rank) + 1
+  ) {
+    return false;
+  }
   for (let i = start; i < deck.length - 1; i++) {
-    if (deck[i + 1].isDown) return false;
-    if (getRank(deck[i].rank) !== getRank(deck[i + 1].rank) + 1) return false;
+    if (deck[i + 1].isDown) break;
+    if (getRank(deck[i].rank) !== getRank(deck[i + 1].rank) + 1) break;
   }
   return true;
 };
@@ -165,16 +171,14 @@ export const findGameHint = (decks: Card[][]): GameHint => {
     for (let from = 0; from < 10; from++) {
       if (from === to) continue;
       const col = decks[from] ?? [];
-      for (let start = 0; start < col.length; start++) {
-        if (col[start].isDown) continue;
-        if (!isValidDescendingRun(col, start)) continue;
-        const mover = col[start];
-        if (isValidMove(mover, targetTop)) {
-          return {
-            kind: "move",
-            text: `Try moving from column ${from + 1} to column ${to + 1}.`,
-          };
-        }
+      if (col.length === 0) continue;
+      const mover = col[0];
+      if (mover.isDown) continue;
+      if (isValidMove(mover, targetTop)) {
+        return {
+          kind: "move",
+          text: `Try moving from column ${from + 1} to column ${to + 1}.`,
+        };
       }
     }
   }

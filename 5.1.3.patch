@@ -1,0 +1,196 @@
+diff --git a/src/ui/Card.tsx b/src/ui/Card.tsx
+index e729170..b6a50d3 100644
+--- a/src/ui/Card.tsx
++++ b/src/ui/Card.tsx
+@@ -3,7 +3,6 @@ import {
+   getRank,
+   checkCompletedSet,
+   isValidMove,
+-  isValidDescendingRun,
+ } from "../utils/game";
+ import type { GameState, Card as CardType } from "../types/game";
+ import styles from "../styles/Card.module.css";
+@@ -26,7 +25,7 @@ const Card: React.FC<CardProps> = ({
+   if (!data || !data.rank) return null;
+ 
+   const column = game.decks[deckIndex] ?? [];
+-  const canDrag = !data.isDown && isValidDescendingRun(column, index);
++  const canDrag = index === 0 && !data.isDown;
+ 
+   let mouseX: number;
+   let mouseY: number;
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..c04c328 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -127,13 +127,19 @@ export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
+   return null;
+ };
+ 
+-/** True if from `start` through the bottom of the column is face-up and strictly descending (single-suit Spider). */
+ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
+   if (start < 0 || start >= deck.length) return false;
+   if (deck[start].isDown) return false;
++  if (
++    start > 0 &&
++    !deck[start - 1].isDown &&
++    getRank(deck[start - 1].rank) === getRank(deck[start].rank) + 1
++  ) {
++    return false;
++  }
+   for (let i = start; i < deck.length - 1; i++) {
+-    if (deck[i + 1].isDown) return false;
+-    if (getRank(deck[i].rank) !== getRank(deck[i + 1].rank) + 1) return false;
++    if (deck[i + 1].isDown) break;
++    if (getRank(deck[i].rank) !== getRank(deck[i + 1].rank) + 1) break;
+   }
+   return true;
+ };
+@@ -165,16 +171,14 @@ export const findGameHint = (decks: Card[][]): GameHint => {
+     for (let from = 0; from < 10; from++) {
+       if (from === to) continue;
+       const col = decks[from] ?? [];
+-      for (let start = 0; start < col.length; start++) {
+-        if (col[start].isDown) continue;
+-        if (!isValidDescendingRun(col, start)) continue;
+-        const mover = col[start];
+-        if (isValidMove(mover, targetTop)) {
+-          return {
+-            kind: "move",
+-            text: `Try moving from column ${from + 1} to column ${to + 1}.`,
+-          };
+-        }
++      if (col.length === 0) continue;
++      const mover = col[0];
++      if (mover.isDown) continue;
++      if (isValidMove(mover, targetTop)) {
++        return {
++          kind: "move",
++          text: `Try moving from column ${from + 1} to column ${to + 1}.`,
++        };
+       }
+     }
+   }
+diff --git a/tests/ui/Card.test.tsx b/tests/ui/Card.test.tsx
+index 96d544e..4366cc4 100644
+--- a/tests/ui/Card.test.tsx
++++ b/tests/ui/Card.test.tsx
+@@ -120,7 +120,7 @@ describe("Card Component", () => {
+       expect(container.firstChild).toBeInTheDocument();
+     });
+ 
+-    it("should not be draggable when run is invalid from this card", () => {
++    it("should be draggable for a top face-up card even when the next card is not in descending order", () => {
+       const game: GameState = {
+         decks: [
+           [
+@@ -138,7 +138,37 @@ describe("Card Component", () => {
+         game,
+         deckIndex: 0,
+       });
+-      expect(container.firstChild).toHaveAttribute("draggable", "false");
++      expect(container.firstChild).toHaveAttribute("draggable", "true");
++    });
++
++    it("should not be draggable for a card that is not at index 0", () => {
++      const game: GameState = {
++        decks: [
++          [
++            { rank: "K", isDown: false },
++            { rank: "Q", isDown: false },
++            { rank: "J", isDown: false },
++          ],
++          ...Array.from({ length: 14 }, () => []),
++        ],
++        completed: 0,
++        moveCount: 0,
++      };
++      const { container: c1 } = renderCard({
++        data: { rank: "Q", isDown: false },
++        index: 1,
++        game,
++        deckIndex: 0,
++      });
++      expect(c1.firstChild).toHaveAttribute("draggable", "false");
++
++      const { container: c2 } = renderCard({
++        data: { rank: "J", isDown: false },
++        index: 2,
++        game,
++        deckIndex: 0,
++      });
++      expect(c2.firstChild).toHaveAttribute("draggable", "false");
+     });
+ 
+     it("should be draggable for a valid descending run from this card", () => {
+diff --git a/tests/utils/game.test.ts b/tests/utils/game.test.ts
+index 0d076bd..e7d1f6e 100644
+--- a/tests/utils/game.test.ts
++++ b/tests/utils/game.test.ts
+@@ -306,15 +306,25 @@ describe("Game Utils", () => {
+       expect(isValidDescendingRun(d, 0)).toBe(true);
+     });
+ 
+-    it("rejects broken order", () => {
++    it("accepts a top card even when the next card breaks the run", () => {
+       const d: Card[] = [
+         { rank: "K", isDown: false },
+         { rank: "7", isDown: false },
+       ];
+-      expect(isValidDescendingRun(d, 0)).toBe(false);
++      expect(isValidDescendingRun(d, 0)).toBe(true);
++    });
++
++    it("rejects a card that is not the top of its descending run", () => {
++      const d: Card[] = [
++        { rank: "K", isDown: false },
++        { rank: "Q", isDown: false },
++        { rank: "J", isDown: false },
++      ];
++      expect(isValidDescendingRun(d, 1)).toBe(false);
++      expect(isValidDescendingRun(d, 2)).toBe(false);
+     });
+ 
+-    it("accepts K–Q–J", () => {
++    it("accepts K–Q–J from the top", () => {
+       const d: Card[] = [
+         { rank: "K", isDown: false },
+         { rank: "Q", isDown: false },
+@@ -322,6 +332,37 @@ describe("Game Utils", () => {
+       ];
+       expect(isValidDescendingRun(d, 0)).toBe(true);
+     });
++
++    it("stops at face-down card instead of rejecting", () => {
++      const d: Card[] = [
++        { rank: "K", isDown: false },
++        { rank: "Q", isDown: true },
++      ];
++      expect(isValidDescendingRun(d, 0)).toBe(true);
++    });
++
++    it("rejects a card when the card above is in the same descending run", () => {
++      const d: Card[] = [
++        { rank: "10", isDown: false },
++        { rank: "9", isDown: false },
++        { rank: "8", isDown: false },
++      ];
++      expect(isValidDescendingRun(d, 0)).toBe(true);
++      expect(isValidDescendingRun(d, 1)).toBe(false);
++    });
++
++    it("accepts a later descending run that is separate from the top run", () => {
++      const d: Card[] = [
++        { rank: "5", isDown: false },
++        { rank: "4", isDown: false },
++        { rank: "K", isDown: false },
++        { rank: "Q", isDown: false },
++      ];
++      expect(isValidDescendingRun(d, 0)).toBe(true);
++      expect(isValidDescendingRun(d, 1)).toBe(false);
++      expect(isValidDescendingRun(d, 2)).toBe(true);
++      expect(isValidDescendingRun(d, 3)).toBe(false);
++    });
+   });
+ 
+   describe("findGameHint", () => {

@@ -306,21 +306,62 @@ describe("Game Utils", () => {
       expect(isValidDescendingRun(d, 0)).toBe(true);
     });
 
-    it("rejects broken order", () => {
+    it("accepts a top card even when the next card breaks the run", () => {
       const d: Card[] = [
         { rank: "K", isDown: false },
         { rank: "7", isDown: false },
       ];
-      expect(isValidDescendingRun(d, 0)).toBe(false);
+      expect(isValidDescendingRun(d, 0)).toBe(true);
     });
 
-    it("accepts K–Q–J", () => {
+    it("rejects a card that is not the top of its descending run", () => {
+      const d: Card[] = [
+        { rank: "K", isDown: false },
+        { rank: "Q", isDown: false },
+        { rank: "J", isDown: false },
+      ];
+      expect(isValidDescendingRun(d, 1)).toBe(false);
+      expect(isValidDescendingRun(d, 2)).toBe(false);
+    });
+
+    it("accepts K–Q–J from the top", () => {
       const d: Card[] = [
         { rank: "K", isDown: false },
         { rank: "Q", isDown: false },
         { rank: "J", isDown: false },
       ];
       expect(isValidDescendingRun(d, 0)).toBe(true);
+    });
+
+    it("stops at face-down card instead of rejecting", () => {
+      const d: Card[] = [
+        { rank: "K", isDown: false },
+        { rank: "Q", isDown: true },
+      ];
+      expect(isValidDescendingRun(d, 0)).toBe(true);
+    });
+
+    it("rejects a card when the card above is in the same descending run", () => {
+      const d: Card[] = [
+        { rank: "10", isDown: false },
+        { rank: "9", isDown: false },
+        { rank: "8", isDown: false },
+      ];
+      expect(isValidDescendingRun(d, 0)).toBe(true);
+      expect(isValidDescendingRun(d, 1)).toBe(false);
+    });
+
+    it("accepts a later descending run that is separate from the top run", () => {
+      const d: Card[] = [
+        { rank: "5", isDown: false },
+        { rank: "4", isDown: false },
+        { rank: "K", isDown: false },
+        { rank: "Q", isDown: false },
+      ];
+      expect(isValidDescendingRun(d, 0)).toBe(true);
+      expect(isValidDescendingRun(d, 1)).toBe(false);
+      expect(isValidDescendingRun(d, 2)).toBe(true);
+      expect(isValidDescendingRun(d, 3)).toBe(false);
     });
   });
 
