@@ -1,0 +1,510 @@
+diff --git a/src/types/game.ts b/src/types/game.ts
+index f25296b..ecab3f2 100644
+--- a/src/types/game.ts
++++ b/src/types/game.ts
+@@ -8,6 +8,7 @@ export interface GameState {
+   decks: Card[][];
+   completed: number;
+   moveCount: number;
++  isPaused: boolean;
+ }
+ 
+ export interface GameInit {
+diff --git a/src/ui/Card.tsx b/src/ui/Card.tsx
+index e729170..cf40e0b 100644
+--- a/src/ui/Card.tsx
++++ b/src/ui/Card.tsx
+@@ -1,4 +1,4 @@
+-import React from "react";
++import React, { useRef } from "react";
+ import {
+   getRank,
+   checkCompletedSet,
+@@ -14,6 +14,8 @@ interface CardProps {
+   game: GameState;
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   deckIndex: number;
++  isPaused: boolean;
++  draggingRef: React.RefObject<boolean>;
+ }
+ 
+ const Card: React.FC<CardProps> = ({
+@@ -22,6 +24,8 @@ const Card: React.FC<CardProps> = ({
+   game,
+   setGame,
+   deckIndex,
++  isPaused,
++  draggingRef,
+ }) => {
+   if (!data || !data.rank) return null;
+ 
+@@ -31,9 +35,16 @@ const Card: React.FC<CardProps> = ({
+   let mouseX: number;
+   let mouseY: number;
+   let selectedCards: HTMLElement[] = [];
++  const pausedAtDragStartRef = useRef<boolean>(false);
++  const dragStartedRef = useRef<boolean>(false);
+ 
+   const dragStart = (event: React.DragEvent<HTMLDivElement>): void => {
+     if (!canDrag) return;
++    if (isPaused) return;
++
++    pausedAtDragStartRef.current = isPaused;
++    dragStartedRef.current = true;
++    draggingRef.current = true;
+ 
+     const currentCard = event.currentTarget;
+     const currentCardIndex = parseInt(
+@@ -83,6 +94,15 @@ const Card: React.FC<CardProps> = ({
+ 
+   const dragEnd = (event: React.DragEvent<HTMLDivElement>): void => {
+     if (!selectedCards.length) return;
++
++    if (pausedAtDragStartRef.current) {
++      resetCardPositions();
++      draggingRef.current = false;
++      dragStartedRef.current = false;
++      selectedCards = [];
++      return;
++    }
++
+     selectedCards.forEach((card) => {
+       card.style.visibility = "hidden";
+     });
+@@ -92,19 +112,19 @@ const Card: React.FC<CardProps> = ({
+       xEndPoint,
+       yEndPoint,
+     ) as HTMLElement;
+-    selectedCards.forEach((card, index) => {
+-      card.style.visibility = "visible";
+-      card.classList.remove(styles.dragging);
+-      const originalTop = index * 30;
+-      card.style.transform = `translate(0px,${originalTop}px)`;
+-    });
++    resetCardPositions();
++
+     if (!dropTarget) {
+       selectedCards = [];
++      draggingRef.current = false;
++      dragStartedRef.current = false;
+       return;
+     }
+     const isDraggingSelf = selectedCards.some((card) => card === dropTarget);
+     if (isDraggingSelf) {
+       selectedCards = [];
++      draggingRef.current = false;
++      dragStartedRef.current = false;
+       return;
+     }
+     let targetDeckIndex = -1;
+@@ -113,6 +133,8 @@ const Card: React.FC<CardProps> = ({
+     ) as HTMLElement;
+     if (!targetElement) {
+       selectedCards = [];
++      draggingRef.current = false;
++      dragStartedRef.current = false;
+       return;
+     }
+     if (targetElement.classList.contains("card")) {
+@@ -129,6 +151,8 @@ const Card: React.FC<CardProps> = ({
+     }
+     if (targetDeckIndex === -1 || targetDeckIndex > 9) {
+       selectedCards = [];
++      draggingRef.current = false;
++      dragStartedRef.current = false;
+       return;
+     }
+     const sourceDeckIndex = parseInt(
+@@ -136,6 +160,8 @@ const Card: React.FC<CardProps> = ({
+     );
+     if (sourceDeckIndex === targetDeckIndex || sourceDeckIndex > 9) {
+       selectedCards = [];
++      draggingRef.current = false;
++      dragStartedRef.current = false;
+       return;
+     }
+     const topMovedRankStr =
+@@ -175,6 +201,17 @@ const Card: React.FC<CardProps> = ({
+       }));
+     }
+     selectedCards = [];
++    draggingRef.current = false;
++    dragStartedRef.current = false;
++  };
++
++  const resetCardPositions = (): void => {
++    selectedCards.forEach((card, index) => {
++      card.style.visibility = "visible";
++      card.classList.remove(styles.dragging);
++      const originalTop = index * 30;
++      card.style.transform = `translate(0px,${originalTop}px)`;
++    });
+   };
+ 
+   const flipNewlyExposedCards = (decks: CardType[][]): void => {
+@@ -186,7 +223,6 @@ const Card: React.FC<CardProps> = ({
+     }
+   };
+ 
+-  /** Removes completed K→A runs from the first 10 columns; returns how many runs were removed. */
+   const removeCompletedSetsFromTableau = (decks: CardType[][]): number => {
+     let completedSets = 0;
+     for (let i = 0; i < 10; i++) {
+@@ -203,7 +239,7 @@ const Card: React.FC<CardProps> = ({
+ 
+   return (
+     <div
+-      draggable={canDrag}
++      draggable={canDrag && !isPaused}
+       data-rank={getRank(data.rank).toString()}
+       data-original-rank={data.rank}
+       onDragStart={dragStart}
+@@ -214,9 +250,13 @@ const Card: React.FC<CardProps> = ({
+       data-isdown={data.isDown.toString()}
+       data-index={index.toString()}
+       className={styles.card}
+-      style={{ top: index * 30 }}
++      style={{
++        top: index * 30,
++        cursor: isPaused ? "not-allowed" : canDrag ? "grab" : "default",
++        opacity: isPaused && canDrag ? 0.7 : 1,
++      }}
+     />
+   );
+ };
+ 
+-export default Card;
++export default Card;
+\ No newline at end of file
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..11c3768 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -6,11 +6,13 @@ import Header from "./Header";
+ import CardBoardBottom from "./CardBoardBottom";
+ import { GameState } from "../types/game";
+ import { showInfo, showWonPopup } from "../utils/toaster";
++import Swal from "sweetalert2";
+ 
+ const cloneGameState = (g: GameState): GameState => ({
+   completed: g.completed,
+   moveCount: g.moveCount,
+   decks: g.decks.map((col) => col.map((c) => ({ ...c }))),
++  isPaused: g.isPaused,
+ });
+ 
+ const CardBoard: React.FC = () => {
+@@ -18,11 +20,13 @@ const CardBoard: React.FC = () => {
+     decks: [],
+     completed: 0,
+     moveCount: 0,
++    isPaused: false,
+   });
+   const [, setGameHistory] = useState<GameState[]>([]);
+   const [canUndo, setCanUndo] = useState<boolean>(false);
+   const [gameKey, setGameKey] = useState<number>(0);
+   const winPopupScheduledRef = useRef(false);
++  const draggingRef = useRef<boolean>(false);
+ 
+   useEffect(() => {
+     startNewGame();
+@@ -50,6 +54,7 @@ const CardBoard: React.FC = () => {
+       decks: init.decks,
+       completed: 0,
+       moveCount: 0,
++      isPaused: false,
+     };
+     setGame(newGameState);
+     setGameHistory([]);
+@@ -57,7 +62,34 @@ const CardBoard: React.FC = () => {
+     setGameKey((prev) => prev + 1);
+   };
+ 
++  const confirmAndStartNewGame = (): void => {
++    if (game.isPaused) {
++      Swal.fire({
++        title: "Start New Game?",
++        text: "The current game is paused. Are you sure you want to start a new game?",
++        icon: "warning",
++        showCancelButton: true,
++        confirmButtonText: "Yes, New Game",
++        cancelButtonText: "Cancel",
++        confirmButtonColor: "#d33",
++        cancelButtonColor: "#3085d6",
++      }).then((result) => {
++        if (result.isConfirmed) {
++          setGame((prev) => ({ ...prev, isPaused: false }));
++          startNewGame();
++        }
++      });
++    } else {
++      startNewGame();
++    }
++  };
++
++  const handleTogglePause = (): void => {
++    setGame((prev) => ({ ...prev, isPaused: !prev.isPaused }));
++  };
++
+   const handleUndo = (): void => {
++    if (game.isPaused) return;
+     setGameHistory((prev) => {
+       if (prev.length === 0) return prev;
+       const previousState = prev[prev.length - 1];
+@@ -82,12 +114,22 @@ const CardBoard: React.FC = () => {
+     });
+   };
+ 
++  const handleDragStart = (): void => {
++    draggingRef.current = true;
++  };
++
++  const handleDragEnd = (): void => {
++    draggingRef.current = false;
++  };
++
+   return (
+     <div key={gameKey}>
+       <Header
+         completed={game.completed}
+         moveCount={game.moveCount}
+-        onNewGame={startNewGame}
++        isPaused={game.isPaused}
++        onNewGame={confirmAndStartNewGame}
++        onTogglePause={handleTogglePause}
+         onUndo={handleUndo}
+         onHint={handleHint}
+         canUndo={canUndo}
+@@ -100,6 +142,8 @@ const CardBoard: React.FC = () => {
+             game={game}
+             deckIndex={index}
+             setGame={updateGameWithHistory}
++            isPaused={game.isPaused}
++            draggingRef={draggingRef}
+             key={`pile${index}`}
+           />
+         ))}
+@@ -108,9 +152,11 @@ const CardBoard: React.FC = () => {
+         game={game}
+         setGame={updateGameWithHistory}
+         stockDecks={game.decks.slice(10)}
++        isPaused={game.isPaused}
++        draggingRef={draggingRef}
+       />
+     </div>
+   );
+ };
+ 
+-export default CardBoard;
++export default CardBoard;
+\ No newline at end of file
+diff --git a/src/ui/CardBoardBottom.tsx b/src/ui/CardBoardBottom.tsx
+index 6ee89c5..5c88364 100644
+--- a/src/ui/CardBoardBottom.tsx
++++ b/src/ui/CardBoardBottom.tsx
+@@ -7,12 +7,16 @@ interface CardBoardBottomProps {
+   game: GameState;
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   stockDecks: Card[][];
++  isPaused: boolean;
++  draggingRef: React.RefObject<boolean>;
+ }
+ 
+ const CardBoardBottom: React.FC<CardBoardBottomProps> = ({
+   game,
+   setGame,
+   stockDecks,
++  isPaused,
++  draggingRef,
+ }) => {
+   return (
+     <div className={styles.bottomCardBoard}>
+@@ -23,10 +27,12 @@ const CardBoardBottom: React.FC<CardBoardBottomProps> = ({
+           setGame={setGame}
+           deck={stockDeck}
+           index={index}
++          isPaused={isPaused}
++          draggingRef={draggingRef}
+         />
+       ))}
+     </div>
+   );
+ };
+ 
+-export default CardBoardBottom;
++export default CardBoardBottom;
+\ No newline at end of file
+diff --git a/src/ui/CardHolder.tsx b/src/ui/CardHolder.tsx
+index 85554ff..3b89d2f 100644
+--- a/src/ui/CardHolder.tsx
++++ b/src/ui/CardHolder.tsx
+@@ -8,6 +8,8 @@ interface CardHolderProps {
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   deck: CardType[];
+   deckIndex: number;
++  isPaused: boolean;
++  draggingRef: React.RefObject<boolean>;
+ }
+ 
+ const CardHolder: React.FC<CardHolderProps> = ({
+@@ -15,6 +17,8 @@ const CardHolder: React.FC<CardHolderProps> = ({
+   setGame,
+   deck,
+   deckIndex,
++  isPaused,
++  draggingRef,
+ }) => {
+   const validCards = deck.filter((card) => card && card.rank);
+ 
+@@ -44,10 +48,12 @@ const CardHolder: React.FC<CardHolderProps> = ({
+           deckIndex={deckIndex}
+           game={game}
+           setGame={setGame}
++          isPaused={isPaused}
++          draggingRef={draggingRef}
+         />
+       ))}
+     </div>
+   );
+ };
+ 
+-export default CardHolder;
++export default CardHolder;
+\ No newline at end of file
+diff --git a/src/ui/Header.tsx b/src/ui/Header.tsx
+index 4315628..ea8caec 100644
+--- a/src/ui/Header.tsx
++++ b/src/ui/Header.tsx
+@@ -1,46 +1,49 @@
+-import React, { useState, useEffect } from "react";
++import React, { useEffect } from "react";
+ import styles from "../styles/Header.module.css";
+ 
+ interface HeaderProps {
+   completed: number;
+   moveCount: number;
++  isPaused: boolean;
+   onNewGame: () => void;
++  onTogglePause: () => void;
+   onUndo?: () => void;
+   onHint?: () => void;
+   canUndo?: boolean;
+-  /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
+   sessionKey?: number;
+ }
+ 
+ const Header: React.FC<HeaderProps> = ({
+   completed,
+   moveCount,
++  isPaused,
+   onNewGame,
++  onTogglePause,
+   onUndo,
+   onHint,
+   canUndo = false,
+   sessionKey = 0,
+ }) => {
+-  const [timer, setTimer] = useState<number>(0);
+-  const [isRunning, setIsRunning] = useState<boolean>(true);
++  const [timer, setTimer] = React.useState<number>(0);
+ 
+   useEffect(() => {
+     let interval: number;
+-    if (isRunning) {
++    if (!isPaused) {
+       interval = setInterval(() => {
+         setTimer((prev) => prev + 1);
+       }, 1000);
+     }
+     return () => clearInterval(interval);
+-  }, [isRunning]);
++  }, [isPaused]);
+ 
+   useEffect(() => {
+-    if (completed === 8) setIsRunning(false);
++    if (completed === 8) {
++      setTimer(0);
++    }
+   }, [completed]);
+ 
+   useEffect(() => {
+     setTimer(0);
+-    setIsRunning(true);
+   }, [sessionKey]);
+ 
+   const formatTime = (seconds: number): string => {
+@@ -56,8 +59,6 @@ const Header: React.FC<HeaderProps> = ({
+   };
+ 
+   const handleNewGame = (): void => {
+-    setTimer(0);
+-    setIsRunning(true);
+     onNewGame();
+   };
+ 
+@@ -109,14 +110,14 @@ const Header: React.FC<HeaderProps> = ({
+         <button
+           type="button"
+           className={`${styles.btn} ${styles.iconBtn}`}
+-          onClick={() => setIsRunning(!isRunning)}
+-          title={isRunning ? "Pause Timer" : "Resume Timer"}
++          onClick={onTogglePause}
++          title={isPaused ? "Resume Game" : "Pause Game"}
+         >
+-          {isRunning ? "⏸️" : "▶️"}
++          {isPaused ? "▶️" : "⏸️"}
+         </button>
+       </div>
+     </div>
+   );
+ };
+ 
+-export default Header;
++export default Header;
+\ No newline at end of file
+diff --git a/src/ui/StockCards.tsx b/src/ui/StockCards.tsx
+index e1a6645..70d5e62 100644
+--- a/src/ui/StockCards.tsx
++++ b/src/ui/StockCards.tsx
+@@ -7,6 +7,8 @@ interface StockCardsProps {
+   game: GameState;
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   deck: Card[];
++  isPaused: boolean;
++  draggingRef: React.RefObject<boolean>;
+ }
+ 
+ const StockCards: React.FC<StockCardsProps> = ({
+@@ -14,6 +16,8 @@ const StockCards: React.FC<StockCardsProps> = ({
+   game,
+   setGame,
+   deck,
++  isPaused,
++  draggingRef,
+ }) => {
+   const [isShown, setIsShown] = useState<boolean>(true);
+ 
+@@ -23,6 +27,8 @@ const StockCards: React.FC<StockCardsProps> = ({
+ 
+   const handleCardSplit = (): void => {
+     if (!deck || deck.length === 0) return;
++    if (isPaused) return;
++    if (draggingRef.current) return;
+ 
+     const tempDecks = game.decks.map((col) => [...col]);
+ 
+@@ -67,11 +73,11 @@ const StockCards: React.FC<StockCardsProps> = ({
+               handleCardSplit();
+             }
+           }}
+-          style={{ cursor: "pointer" }}
++          style={{ cursor: isPaused ? "not-allowed" : "pointer" }}
+         />
+       )}
+     </>
+   );
+ };
+ 
+-export default StockCards;
++export default StockCards;
+\ No newline at end of file

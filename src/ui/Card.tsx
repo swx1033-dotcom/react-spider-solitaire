@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useRef } from "react";
 import {
   getRank,
   checkCompletedSet,
@@ -14,6 +14,8 @@ interface CardProps {
   game: GameState;
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deckIndex: number;
+  isPaused: boolean;
+  draggingRef: React.RefObject<boolean>;
 }
 
 const Card: React.FC<CardProps> = ({
@@ -22,6 +24,8 @@ const Card: React.FC<CardProps> = ({
   game,
   setGame,
   deckIndex,
+  isPaused,
+  draggingRef,
 }) => {
   if (!data || !data.rank) return null;
 
@@ -31,9 +35,16 @@ const Card: React.FC<CardProps> = ({
   let mouseX: number;
   let mouseY: number;
   let selectedCards: HTMLElement[] = [];
+  const pausedAtDragStartRef = useRef<boolean>(false);
+  const dragStartedRef = useRef<boolean>(false);
 
   const dragStart = (event: React.DragEvent<HTMLDivElement>): void => {
     if (!canDrag) return;
+    if (isPaused) return;
+
+    pausedAtDragStartRef.current = isPaused;
+    dragStartedRef.current = true;
+    draggingRef.current = true;
 
     const currentCard = event.currentTarget;
     const currentCardIndex = parseInt(
@@ -83,6 +94,15 @@ const Card: React.FC<CardProps> = ({
 
   const dragEnd = (event: React.DragEvent<HTMLDivElement>): void => {
     if (!selectedCards.length) return;
+
+    if (pausedAtDragStartRef.current) {
+      resetCardPositions();
+      draggingRef.current = false;
+      dragStartedRef.current = false;
+      selectedCards = [];
+      return;
+    }
+
     selectedCards.forEach((card) => {
       card.style.visibility = "hidden";
     });
@@ -92,19 +112,19 @@ const Card: React.FC<CardProps> = ({
       xEndPoint,
       yEndPoint,
     ) as HTMLElement;
-    selectedCards.forEach((card, index) => {
-      card.style.visibility = "visible";
-      card.classList.remove(styles.dragging);
-      const originalTop = index * 30;
-      card.style.transform = `translate(0px,${originalTop}px)`;
-    });
+    resetCardPositions();
+
     if (!dropTarget) {
       selectedCards = [];
+      draggingRef.current = false;
+      dragStartedRef.current = false;
       return;
     }
     const isDraggingSelf = selectedCards.some((card) => card === dropTarget);
     if (isDraggingSelf) {
       selectedCards = [];
+      draggingRef.current = false;
+      dragStartedRef.current = false;
       return;
     }
     let targetDeckIndex = -1;
@@ -113,6 +133,8 @@ const Card: React.FC<CardProps> = ({
     ) as HTMLElement;
     if (!targetElement) {
       selectedCards = [];
+      draggingRef.current = false;
+      dragStartedRef.current = false;
       return;
     }
     if (targetElement.classList.contains("card")) {
@@ -129,6 +151,8 @@ const Card: React.FC<CardProps> = ({
     }
     if (targetDeckIndex === -1 || targetDeckIndex > 9) {
       selectedCards = [];
+      draggingRef.current = false;
+      dragStartedRef.current = false;
       return;
     }
     const sourceDeckIndex = parseInt(
@@ -136,6 +160,8 @@ const Card: React.FC<CardProps> = ({
     );
     if (sourceDeckIndex === targetDeckIndex || sourceDeckIndex > 9) {
       selectedCards = [];
+      draggingRef.current = false;
+      dragStartedRef.current = false;
       return;
     }
     const topMovedRankStr =
@@ -175,6 +201,17 @@ const Card: React.FC<CardProps> = ({
       }));
     }
     selectedCards = [];
+    draggingRef.current = false;
+    dragStartedRef.current = false;
+  };
+
+  const resetCardPositions = (): void => {
+    selectedCards.forEach((card, index) => {
+      card.style.visibility = "visible";
+      card.classList.remove(styles.dragging);
+      const originalTop = index * 30;
+      card.style.transform = `translate(0px,${originalTop}px)`;
+    });
   };
 
   const flipNewlyExposedCards = (decks: CardType[][]): void => {
@@ -186,7 +223,6 @@ const Card: React.FC<CardProps> = ({
     }
   };
 
-  /** Removes completed K→A runs from the first 10 columns; returns how many runs were removed. */
   const removeCompletedSetsFromTableau = (decks: CardType[][]): number => {
     let completedSets = 0;
     for (let i = 0; i < 10; i++) {
@@ -203,7 +239,7 @@ const Card: React.FC<CardProps> = ({
 
   return (
     <div
-      draggable={canDrag}
+      draggable={canDrag && !isPaused}
       data-rank={getRank(data.rank).toString()}
       data-original-rank={data.rank}
       onDragStart={dragStart}
@@ -214,7 +250,11 @@ const Card: React.FC<CardProps> = ({
       data-isdown={data.isDown.toString()}
       data-index={index.toString()}
       className={styles.card}
-      style={{ top: index * 30 }}
+      style={{
+        top: index * 30,
+        cursor: isPaused ? "not-allowed" : canDrag ? "grab" : "default",
+        opacity: isPaused && canDrag ? 0.7 : 1,
+      }}
     />
   );
 };

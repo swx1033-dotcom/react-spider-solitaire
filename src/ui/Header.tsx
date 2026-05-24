@@ -1,46 +1,49 @@
-import React, { useState, useEffect } from "react";
+import React, { useEffect } from "react";
 import styles from "../styles/Header.module.css";
 
 interface HeaderProps {
   completed: number;
   moveCount: number;
+  isPaused: boolean;
   onNewGame: () => void;
+  onTogglePause: () => void;
   onUndo?: () => void;
   onHint?: () => void;
   canUndo?: boolean;
-  /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
   sessionKey?: number;
 }
 
 const Header: React.FC<HeaderProps> = ({
   completed,
   moveCount,
+  isPaused,
   onNewGame,
+  onTogglePause,
   onUndo,
   onHint,
   canUndo = false,
   sessionKey = 0,
 }) => {
-  const [timer, setTimer] = useState<number>(0);
-  const [isRunning, setIsRunning] = useState<boolean>(true);
+  const [timer, setTimer] = React.useState<number>(0);
 
   useEffect(() => {
     let interval: number;
-    if (isRunning) {
+    if (!isPaused) {
       interval = setInterval(() => {
         setTimer((prev) => prev + 1);
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isRunning]);
+  }, [isPaused]);
 
   useEffect(() => {
-    if (completed === 8) setIsRunning(false);
+    if (completed === 8) {
+      setTimer(0);
+    }
   }, [completed]);
 
   useEffect(() => {
     setTimer(0);
-    setIsRunning(true);
   }, [sessionKey]);
 
   const formatTime = (seconds: number): string => {
@@ -56,8 +59,6 @@ const Header: React.FC<HeaderProps> = ({
   };
 
   const handleNewGame = (): void => {
-    setTimer(0);
-    setIsRunning(true);
     onNewGame();
   };
 
@@ -109,10 +110,10 @@ const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           className={`${styles.btn} ${styles.iconBtn}`}
-          onClick={() => setIsRunning(!isRunning)}
-          title={isRunning ? "Pause Timer" : "Resume Timer"}
+          onClick={onTogglePause}
+          title={isPaused ? "Resume Game" : "Pause Game"}
         >
-          {isRunning ? "⏸️" : "▶️"}
+          {isPaused ? "▶️" : "⏸️"}
         </button>
       </div>
     </div>

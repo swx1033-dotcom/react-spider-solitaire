@@ -8,6 +8,8 @@ interface CardHolderProps {
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deck: CardType[];
   deckIndex: number;
+  isPaused: boolean;
+  draggingRef: React.RefObject<boolean>;
 }
 
 const CardHolder: React.FC<CardHolderProps> = ({
@@ -15,6 +17,8 @@ const CardHolder: React.FC<CardHolderProps> = ({
   setGame,
   deck,
   deckIndex,
+  isPaused,
+  draggingRef,
 }) => {
   const validCards = deck.filter((card) => card && card.rank);
 
@@ -44,6 +48,8 @@ const CardHolder: React.FC<CardHolderProps> = ({
           deckIndex={deckIndex}
           game={game}
           setGame={setGame}
+          isPaused={isPaused}
+          draggingRef={draggingRef}
         />
       ))}
     </div>

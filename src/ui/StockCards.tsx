@@ -7,6 +7,8 @@ interface StockCardsProps {
   game: GameState;
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deck: Card[];
+  isPaused: boolean;
+  draggingRef: React.RefObject<boolean>;
 }
 
 const StockCards: React.FC<StockCardsProps> = ({
@@ -14,6 +16,8 @@ const StockCards: React.FC<StockCardsProps> = ({
   game,
   setGame,
   deck,
+  isPaused,
+  draggingRef,
 }) => {
   const [isShown, setIsShown] = useState<boolean>(true);
 
@@ -23,6 +27,8 @@ const StockCards: React.FC<StockCardsProps> = ({
 
   const handleCardSplit = (): void => {
     if (!deck || deck.length === 0) return;
+    if (isPaused) return;
+    if (draggingRef.current) return;
 
     const tempDecks = game.decks.map((col) => [...col]);
 
@@ -67,7 +73,7 @@ const StockCards: React.FC<StockCardsProps> = ({
               handleCardSplit();
             }
           }}
-          style={{ cursor: "pointer" }}
+          style={{ cursor: isPaused ? "not-allowed" : "pointer" }}
         />
       )}
     </>
