@@ -6,6 +6,8 @@ import {
   isValidMove,
   checkCompletedSet,
   isValidDescendingRun,
+  findTopmostValidRunStart,
+  isTopmostValidRunStart,
   findGameHint,
 } from "../../src/utils/game";
 import type { Card } from "../../src/types/game";
@@ -321,6 +323,58 @@ describe("Game Utils", () => {
         { rank: "J", isDown: false },
       ];
       expect(isValidDescendingRun(d, 0)).toBe(true);
+    });
+  });
+
+  describe("findTopmostValidRunStart and isTopmostValidRunStart", () => {
+    it("finds correct start in a single card column", () => {
+      const d: Card[] = [{ rank: "7", isDown: false }];
+      expect(findTopmostValidRunStart(d)).toBe(0);
+      expect(isTopmostValidRunStart(d, 0)).toBe(true);
+    });
+
+    it("finds correct start in K-Q-J column (only top card is valid)", () => {
+      const d: Card[] = [
+        { rank: "K", isDown: false },
+        { rank: "Q", isDown: false },
+        { rank: "J", isDown: false },
+      ];
+      expect(findTopmostValidRunStart(d)).toBe(0);
+      expect(isTopmostValidRunStart(d, 0)).toBe(true);
+      expect(isTopmostValidRunStart(d, 1)).toBe(false);
+      expect(isTopmostValidRunStart(d, 2)).toBe(false);
+    });
+
+    it("finds correct start in a column with broken sequence (only the first face-up card is valid)", () => {
+      const d: Card[] = [
+        { rank: "5", isDown: false },
+        { rank: "7", isDown: false },
+        { rank: "6", isDown: false },
+        { rank: "5", isDown: false },
+      ];
+      // According to our new simplified rule, only the first face-up card is valid
+      expect(findTopmostValidRunStart(d)).toBe(0);
+      expect(isTopmostValidRunStart(d, 0)).toBe(true);
+      expect(isTopmostValidRunStart(d, 1)).toBe(false);
+      expect(isTopmostValidRunStart(d, 3)).toBe(false);
+    });
+
+    it("returns -1 for all face-down cards", () => {
+      const d: Card[] = [
+        { rank: "K", isDown: true },
+        { rank: "Q", isDown: true },
+      ];
+      expect(findTopmostValidRunStart(d)).toBe(-1);
+    });
+
+    it("handles face-down cards in the middle correctly", () => {
+      const d: Card[] = [
+        { rank: "K", isDown: true },
+        { rank: "Q", isDown: false },
+        { rank: "J", isDown: false },
+      ];
+      expect(findTopmostValidRunStart(d)).toBe(1);
+      expect(isTopmostValidRunStart(d, 1)).toBe(true);
     });
   });
 

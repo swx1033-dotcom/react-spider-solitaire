@@ -138,6 +138,54 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
   return true;
 };
 
+/** Finds the starting index of the valid run that is topmost in the column. */
+export const findTopmostValidRunStart = (deck: Card[]): number => {
+  // Step 1: Find the first (topmost) face-up card
+  let firstFaceUp = -1;
+  for (let i = 0; i < deck.length; i++) {
+    if (!deck[i].isDown) {
+      firstFaceUp = i;
+      break;
+    }
+  }
+  if (firstFaceUp === -1) return -1;
+  
+  // Step 2: Now, find the longest consecutive descending sequence starting from firstFaceUp
+  // But actually, according to the user's requirement, we just need to find the earliest (topmost)
+  // position where we can start a valid descending run, and that has no face-up cards above it.
+  
+  // But wait, let's really understand the user's requirement:
+  // "玩家只能拖拽某一列中从顶部开始的连续降序序列的最顶部那张牌"
+  // This means:
+  // - In a column, there is a "continuous descending sequence that starts from the top"
+  // - Only the MOST TOP card of that particular sequence can be dragged
+  
+  // Let's think of examples:
+  // Example 1: [K(up), Q(up), J(up)]
+  // - The top-starting continuous descending sequence is K-Q-J
+  // - Only K can be dragged
+  
+  // Example 2: [5(up), 7(up), 6(up), 5(up)]
+  // - The top-starting sequence is just [5] (since 5 can't be followed by 7)
+  // - Only the first 5 can be dragged
+  
+  // Example 3: [K(down), Q(up), J(up)]
+  // - The top-starting sequence is Q-J
+  // - Only Q can be dragged
+  
+  // So the rule is: the only draggable card is the FIRST FACE-UP CARD!
+  // Because the "continuous descending sequence that starts from the top" will always start there.
+  return firstFaceUp;
+};
+
+/** True if the given index is the start of the topmost valid descending run. */
+export const isTopmostValidRunStart = (deck: Card[], index: number): boolean => {
+  const topmostStart = findTopmostValidRunStart(deck);
+  // Also need to make sure that from the topmost start, it is a valid descending run
+  // (though any single card is always a valid run)
+  return topmostStart === index && isValidDescendingRun(deck, topmostStart);
+};
+
 export type GameHintKind = "complete" | "move" | "deal" | "stuck";
 
 export type GameHint = {
@@ -165,16 +213,14 @@ export const findGameHint = (decks: Card[][]): GameHint => {
     for (let from = 0; from < 10; from++) {
       if (from === to) continue;
       const col = decks[from] ?? [];
-      for (let start = 0; start < col.length; start++) {
-        if (col[start].isDown) continue;
-        if (!isValidDescendingRun(col, start)) continue;
-        const mover = col[start];
-        if (isValidMove(mover, targetTop)) {
-          return {
-            kind: "move",
-            text: `Try moving from column ${from + 1} to column ${to + 1}.`,
-          };
-        }
+      const validStart = findTopmostValidRunStart(col);
+      if (validStart === -1) continue;
+      const mover = col[validStart];
+      if (isValidMove(mover, targetTop)) {
+        return {
+          kind: "move",
+          text: `Try moving from column ${from + 1} to column ${to + 1}.`,
+        };
       }
     }
   }

@@ -1,0 +1,177 @@
+diff --git a/src/ui/Card.tsx b/src/ui/Card.tsx
+index e729170..44d9a4b 100644
+--- a/src/ui/Card.tsx
++++ b/src/ui/Card.tsx
+@@ -4,6 +4,7 @@ import {
+   checkCompletedSet,
+   isValidMove,
+   isValidDescendingRun,
++  isTopmostValidRunStart,
+ } from "../utils/game";
+ import type { GameState, Card as CardType } from "../types/game";
+ import styles from "../styles/Card.module.css";
+@@ -26,7 +27,7 @@ const Card: React.FC<CardProps> = ({
+   if (!data || !data.rank) return null;
+ 
+   const column = game.decks[deckIndex] ?? [];
+-  const canDrag = !data.isDown && isValidDescendingRun(column, index);
++  const canDrag = !data.isDown && isTopmostValidRunStart(column, index);
+ 
+   let mouseX: number;
+   let mouseY: number;
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..bc888c2 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -138,6 +138,54 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
+   return true;
+ };
+ 
++/** Finds the starting index of the valid run that is topmost in the column. */
++export const findTopmostValidRunStart = (deck: Card[]): number => {
++  // Step 1: Find the first (topmost) face-up card
++  let firstFaceUp = -1;
++  for (let i = 0; i < deck.length; i++) {
++    if (!deck[i].isDown) {
++      firstFaceUp = i;
++      break;
++    }
++  }
++  if (firstFaceUp === -1) return -1;
++  
++  // Step 2: Now, find the longest consecutive descending sequence starting from firstFaceUp
++  // But actually, according to the user's requirement, we just need to find the earliest (topmost)
++  // position where we can start a valid descending run, and that has no face-up cards above it.
++  
++  // But wait, let's really understand the user's requirement:
++  // "玩家只能拖拽某一列中从顶部开始的连续降序序列的最顶部那张牌"
++  // This means:
++  // - In a column, there is a "continuous descending sequence that starts from the top"
++  // - Only the MOST TOP card of that particular sequence can be dragged
++  
++  // Let's think of examples:
++  // Example 1: [K(up), Q(up), J(up)]
++  // - The top-starting continuous descending sequence is K-Q-J
++  // - Only K can be dragged
++  
++  // Example 2: [5(up), 7(up), 6(up), 5(up)]
++  // - The top-starting sequence is just [5] (since 5 can't be followed by 7)
++  // - Only the first 5 can be dragged
++  
++  // Example 3: [K(down), Q(up), J(up)]
++  // - The top-starting sequence is Q-J
++  // - Only Q can be dragged
++  
++  // So the rule is: the only draggable card is the FIRST FACE-UP CARD!
++  // Because the "continuous descending sequence that starts from the top" will always start there.
++  return firstFaceUp;
++};
++
++/** True if the given index is the start of the topmost valid descending run. */
++export const isTopmostValidRunStart = (deck: Card[], index: number): boolean => {
++  const topmostStart = findTopmostValidRunStart(deck);
++  // Also need to make sure that from the topmost start, it is a valid descending run
++  // (though any single card is always a valid run)
++  return topmostStart === index && isValidDescendingRun(deck, topmostStart);
++};
++
+ export type GameHintKind = "complete" | "move" | "deal" | "stuck";
+ 
+ export type GameHint = {
+@@ -165,16 +213,14 @@ export const findGameHint = (decks: Card[][]): GameHint => {
+     for (let from = 0; from < 10; from++) {
+       if (from === to) continue;
+       const col = decks[from] ?? [];
+-      for (let start = 0; start < col.length; start++) {
+-        if (col[start].isDown) continue;
+-        if (!isValidDescendingRun(col, start)) continue;
+-        const mover = col[start];
+-        if (isValidMove(mover, targetTop)) {
+-          return {
+-            kind: "move",
+-            text: `Try moving from column ${from + 1} to column ${to + 1}.`,
+-          };
+-        }
++      const validStart = findTopmostValidRunStart(col);
++      if (validStart === -1) continue;
++      const mover = col[validStart];
++      if (isValidMove(mover, targetTop)) {
++        return {
++          kind: "move",
++          text: `Try moving from column ${from + 1} to column ${to + 1}.`,
++        };
+       }
+     }
+   }
+diff --git a/tests/utils/game.test.ts b/tests/utils/game.test.ts
+index 0d076bd..5603078 100644
+--- a/tests/utils/game.test.ts
++++ b/tests/utils/game.test.ts
+@@ -6,6 +6,8 @@ import {
+   isValidMove,
+   checkCompletedSet,
+   isValidDescendingRun,
++  findTopmostValidRunStart,
++  isTopmostValidRunStart,
+   findGameHint,
+ } from "../../src/utils/game";
+ import type { Card } from "../../src/types/game";
+@@ -324,6 +326,58 @@ describe("Game Utils", () => {
+     });
+   });
+ 
++  describe("findTopmostValidRunStart and isTopmostValidRunStart", () => {
++    it("finds correct start in a single card column", () => {
++      const d: Card[] = [{ rank: "7", isDown: false }];
++      expect(findTopmostValidRunStart(d)).toBe(0);
++      expect(isTopmostValidRunStart(d, 0)).toBe(true);
++    });
++
++    it("finds correct start in K-Q-J column (only top card is valid)", () => {
++      const d: Card[] = [
++        { rank: "K", isDown: false },
++        { rank: "Q", isDown: false },
++        { rank: "J", isDown: false },
++      ];
++      expect(findTopmostValidRunStart(d)).toBe(0);
++      expect(isTopmostValidRunStart(d, 0)).toBe(true);
++      expect(isTopmostValidRunStart(d, 1)).toBe(false);
++      expect(isTopmostValidRunStart(d, 2)).toBe(false);
++    });
++
++    it("finds correct start in a column with broken sequence (only the first face-up card is valid)", () => {
++      const d: Card[] = [
++        { rank: "5", isDown: false },
++        { rank: "7", isDown: false },
++        { rank: "6", isDown: false },
++        { rank: "5", isDown: false },
++      ];
++      // According to our new simplified rule, only the first face-up card is valid
++      expect(findTopmostValidRunStart(d)).toBe(0);
++      expect(isTopmostValidRunStart(d, 0)).toBe(true);
++      expect(isTopmostValidRunStart(d, 1)).toBe(false);
++      expect(isTopmostValidRunStart(d, 3)).toBe(false);
++    });
++
++    it("returns -1 for all face-down cards", () => {
++      const d: Card[] = [
++        { rank: "K", isDown: true },
++        { rank: "Q", isDown: true },
++      ];
++      expect(findTopmostValidRunStart(d)).toBe(-1);
++    });
++
++    it("handles face-down cards in the middle correctly", () => {
++      const d: Card[] = [
++        { rank: "K", isDown: true },
++        { rank: "Q", isDown: false },
++        { rank: "J", isDown: false },
++      ];
++      expect(findTopmostValidRunStart(d)).toBe(1);
++      expect(isTopmostValidRunStart(d, 1)).toBe(true);
++    });
++  });
++
+   describe("findGameHint", () => {
+     const empty15 = (): Card[][] => Array.from({ length: 15 }, () => []);
+ 
