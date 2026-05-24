@@ -8,6 +8,7 @@ interface CardHolderProps {
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deck: CardType[];
   deckIndex: number;
+  highlightedCards?: { deckIndex: number; cardIndex: number }[];
 }
 
 const CardHolder: React.FC<CardHolderProps> = ({
@@ -15,6 +16,7 @@ const CardHolder: React.FC<CardHolderProps> = ({
   setGame,
   deck,
   deckIndex,
+  highlightedCards = [],
 }) => {
   const validCards = deck.filter((card) => card && card.rank);
 
@@ -36,16 +38,22 @@ const CardHolder: React.FC<CardHolderProps> = ({
       data-empty-column={isEmpty ? "true" : "false"}
       data-testid="card-holder"
     >
-      {validCards.map((card, index) => (
-        <Card
-          data={card}
-          key={`${card.rank}-${deckIndex}-${index}`}
-          index={index}
-          deckIndex={deckIndex}
-          game={game}
-          setGame={setGame}
-        />
-      ))}
+      {validCards.map((card, index) => {
+        const isHighlighted = highlightedCards.some(
+          (h) => h.cardIndex === index,
+        );
+        return (
+          <Card
+            data={card}
+            key={`${card.rank}-${deckIndex}-${index}`}
+            index={index}
+            deckIndex={deckIndex}
+            game={game}
+            setGame={setGame}
+            isHighlighted={isHighlighted}
+          />
+        );
+      })}
     </div>
   );
 };

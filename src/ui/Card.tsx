@@ -14,6 +14,7 @@ interface CardProps {
   game: GameState;
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deckIndex: number;
+  isHighlighted?: boolean;
 }
 
 const Card: React.FC<CardProps> = ({
@@ -22,6 +23,7 @@ const Card: React.FC<CardProps> = ({
   game,
   setGame,
   deckIndex,
+  isHighlighted = false,
 }) => {
   if (!data || !data.rank) return null;
 
@@ -213,7 +215,7 @@ const Card: React.FC<CardProps> = ({
       data-deck-index={deckIndex.toString()}
       data-isdown={data.isDown.toString()}
       data-index={index.toString()}
-      className={styles.card}
+      className={`${styles.card}${isHighlighted ? ` ${styles.highlighted}` : ""}`}
       style={{ top: index * 30 }}
     />
   );

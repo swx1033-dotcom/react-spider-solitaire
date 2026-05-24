@@ -1,0 +1,290 @@
+diff --git a/src/styles/Card.module.css b/src/styles/Card.module.css
+index 3764dfd..5413be7 100644
+--- a/src/styles/Card.module.css
++++ b/src/styles/Card.module.css
+@@ -143,6 +143,22 @@
+   top: 510px;
+ }
+ 
++.highlighted {
++  box-shadow: 0 0 20px 5px #ffd700, 0 0 30px 10px rgba(255, 215, 0, 0.5);
++  border: 3px solid #ffd700;
++  animation: highlightPulse 0.5s ease-in-out infinite alternate;
++  z-index: 100;
++}
++
++@keyframes highlightPulse {
++  from {
++    box-shadow: 0 0 15px 3px #ffd700, 0 0 25px 8px rgba(255, 215, 0, 0.4);
++  }
++  to {
++    box-shadow: 0 0 25px 7px #ffd700, 0 0 35px 12px rgba(255, 215, 0, 0.6);
++  }
++}
++
+ .card[data-index="18"] {
+   top: 540px;
+ }
+diff --git a/src/ui/Card.tsx b/src/ui/Card.tsx
+index e729170..30ff233 100644
+--- a/src/ui/Card.tsx
++++ b/src/ui/Card.tsx
+@@ -14,6 +14,7 @@ interface CardProps {
+   game: GameState;
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   deckIndex: number;
++  isHighlighted?: boolean;
+ }
+ 
+ const Card: React.FC<CardProps> = ({
+@@ -22,6 +23,7 @@ const Card: React.FC<CardProps> = ({
+   game,
+   setGame,
+   deckIndex,
++  isHighlighted = false,
+ }) => {
+   if (!data || !data.rank) return null;
+ 
+@@ -213,7 +215,7 @@ const Card: React.FC<CardProps> = ({
+       data-deck-index={deckIndex.toString()}
+       data-isdown={data.isDown.toString()}
+       data-index={index.toString()}
+-      className={styles.card}
++      className={`${styles.card}${isHighlighted ? ` ${styles.highlighted}` : ""}`}
+       style={{ top: index * 30 }}
+     />
+   );
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..c211373 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -1,10 +1,10 @@
+-import React, { useState, useEffect, useRef } from "react";
+-import { initiateGame, findGameHint } from "../utils/game";
++import React, { useState, useEffect, useRef, useCallback } from "react";
++import { initiateGame, findGameHint, findMovableCards } from "../utils/game";
+ import CardHolder from "./CardHolder";
+ import styles from "../styles/CardBoard.module.css";
+ import Header from "./Header";
+ import CardBoardBottom from "./CardBoardBottom";
+-import { GameState } from "../types/game";
++import { GameState, Card } from "../types/game";
+ import { showInfo, showWonPopup } from "../utils/toaster";
+ 
+ const cloneGameState = (g: GameState): GameState => ({
+@@ -22,8 +22,38 @@ const CardBoard: React.FC = () => {
+   const [, setGameHistory] = useState<GameState[]>([]);
+   const [canUndo, setCanUndo] = useState<boolean>(false);
+   const [gameKey, setGameKey] = useState<number>(0);
++  const [highlightedCards, setHighlightedCards] = useState<
++    { deckIndex: number; cardIndex: number }[]
++  >([]);
++  const highlightTimerRef = useRef<number | null>(null);
+   const winPopupScheduledRef = useRef(false);
+ 
++  const clearHighlight = useCallback(() => {
++    if (highlightTimerRef.current !== null) {
++      window.clearTimeout(highlightTimerRef.current);
++      highlightTimerRef.current = null;
++    }
++    setHighlightedCards([]);
++  }, []);
++
++  const handleHighlight = useCallback(() => {
++    if (highlightTimerRef.current !== null) {
++      window.clearTimeout(highlightTimerRef.current);
++    }
++
++    const movableCards = findMovableCards(game.decks);
++    if (movableCards.length === 0) {
++      showInfo("No movable cards available");
++      return;
++    }
++
++    setHighlightedCards(movableCards);
++    highlightTimerRef.current = window.setTimeout(() => {
++      setHighlightedCards([]);
++      highlightTimerRef.current = null;
++    }, 3000);
++  }, [game.decks]);
++
+   useEffect(() => {
+     startNewGame();
+   }, []);
+@@ -45,6 +75,7 @@ const CardBoard: React.FC = () => {
+   }, [game.completed]);
+ 
+   const startNewGame = (): void => {
++    clearHighlight();
+     const init = initiateGame();
+     const newGameState: GameState = {
+       decks: init.decks,
+@@ -74,6 +105,7 @@ const CardBoard: React.FC = () => {
+   const updateGameWithHistory = (
+     next: React.SetStateAction<GameState>,
+   ): void => {
++    clearHighlight();
+     setGame((prev) => {
+       const resolved = typeof next === "function" ? next(prev) : next;
+       setGameHistory((h) => [...h, cloneGameState(prev)]);
+@@ -82,6 +114,12 @@ const CardBoard: React.FC = () => {
+     });
+   };
+ 
++  const isCardHighlighted = (deckIndex: number, cardIndex: number): boolean => {
++    return highlightedCards.some(
++      (h) => h.deckIndex === deckIndex && h.cardIndex === cardIndex,
++    );
++  };
++
+   return (
+     <div key={gameKey}>
+       <Header
+@@ -90,6 +128,7 @@ const CardBoard: React.FC = () => {
+         onNewGame={startNewGame}
+         onUndo={handleUndo}
+         onHint={handleHint}
++        onHighlight={handleHighlight}
+         canUndo={canUndo}
+         sessionKey={gameKey}
+       />
+@@ -100,6 +139,9 @@ const CardBoard: React.FC = () => {
+             game={game}
+             deckIndex={index}
+             setGame={updateGameWithHistory}
++            highlightedCards={highlightedCards.filter(
++              (h) => h.deckIndex === index,
++            )}
+             key={`pile${index}`}
+           />
+         ))}
+diff --git a/src/ui/CardHolder.tsx b/src/ui/CardHolder.tsx
+index 85554ff..63d6ffd 100644
+--- a/src/ui/CardHolder.tsx
++++ b/src/ui/CardHolder.tsx
+@@ -8,6 +8,7 @@ interface CardHolderProps {
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   deck: CardType[];
+   deckIndex: number;
++  highlightedCards?: { deckIndex: number; cardIndex: number }[];
+ }
+ 
+ const CardHolder: React.FC<CardHolderProps> = ({
+@@ -15,6 +16,7 @@ const CardHolder: React.FC<CardHolderProps> = ({
+   setGame,
+   deck,
+   deckIndex,
++  highlightedCards = [],
+ }) => {
+   const validCards = deck.filter((card) => card && card.rank);
+ 
+@@ -36,16 +38,22 @@ const CardHolder: React.FC<CardHolderProps> = ({
+       data-empty-column={isEmpty ? "true" : "false"}
+       data-testid="card-holder"
+     >
+-      {validCards.map((card, index) => (
+-        <Card
+-          data={card}
+-          key={`${card.rank}-${deckIndex}-${index}`}
+-          index={index}
+-          deckIndex={deckIndex}
+-          game={game}
+-          setGame={setGame}
+-        />
+-      ))}
++      {validCards.map((card, index) => {
++        const isHighlighted = highlightedCards.some(
++          (h) => h.cardIndex === index,
++        );
++        return (
++          <Card
++            data={card}
++            key={`${card.rank}-${deckIndex}-${index}`}
++            index={index}
++            deckIndex={deckIndex}
++            game={game}
++            setGame={setGame}
++            isHighlighted={isHighlighted}
++          />
++        );
++      })}
+     </div>
+   );
+ };
+diff --git a/src/ui/Header.tsx b/src/ui/Header.tsx
+index 4315628..bb326eb 100644
+--- a/src/ui/Header.tsx
++++ b/src/ui/Header.tsx
+@@ -7,6 +7,7 @@ interface HeaderProps {
+   onNewGame: () => void;
+   onUndo?: () => void;
+   onHint?: () => void;
++  onHighlight?: () => void;
+   canUndo?: boolean;
+   /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
+   sessionKey?: number;
+@@ -18,6 +19,7 @@ const Header: React.FC<HeaderProps> = ({
+   onNewGame,
+   onUndo,
+   onHint,
++  onHighlight,
+   canUndo = false,
+   sessionKey = 0,
+ }) => {
+@@ -82,6 +84,9 @@ const Header: React.FC<HeaderProps> = ({
+         <button type="button" className={styles.btn} onClick={() => onHint?.()}>
+           💡 Hint
+         </button>
++        <button type="button" className={styles.btn} onClick={() => onHighlight?.()}>
++          ✨ Highlight
++        </button>
+       </div>
+       <div className={styles.centerSection}>
+         <div className={styles.stats}>
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..3285e84 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -145,6 +145,42 @@ export type GameHint = {
+   text: string;
+ };
+ 
++export type MovableCard = {
++  deckIndex: number;
++  cardIndex: number;
++};
++
++export const findMovableCards = (decks: Card[][]): MovableCard[] => {
++  const movableSet = new Set<string>();
++  const result: MovableCard[] = [];
++
++  for (let from = 0; from < 10; from++) {
++    const col = decks[from] ?? [];
++    for (let start = 0; start < col.length; start++) {
++      if (col[start].isDown) continue;
++      if (!isValidDescendingRun(col, start)) continue;
++
++      const mover = col[start];
++
++      for (let to = 0; to < 10; to++) {
++        if (from === to) continue;
++        const targetCol = decks[to] ?? [];
++        const targetTop = targetCol.length === 0 ? null : targetCol[targetCol.length - 1];
++        if (isValidMove(mover, targetTop)) {
++          const key = `${from}-${start}`;
++          if (!movableSet.has(key)) {
++            movableSet.add(key);
++            result.push({ deckIndex: from, cardIndex: start });
++          }
++          break;
++        }
++      }
++    }
++  }
++
++  return result;
++};
++
+ /** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
+ export const findGameHint = (decks: Card[][]): GameHint => {
+   for (let c = 0; c < 10; c++) {

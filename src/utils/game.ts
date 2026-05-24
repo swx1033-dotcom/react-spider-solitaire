@@ -145,6 +145,42 @@ export type GameHint = {
   text: string;
 };
 
+export type MovableCard = {
+  deckIndex: number;
+  cardIndex: number;
+};
+
+export const findMovableCards = (decks: Card[][]): MovableCard[] => {
+  const movableSet = new Set<string>();
+  const result: MovableCard[] = [];
+
+  for (let from = 0; from < 10; from++) {
+    const col = decks[from] ?? [];
+    for (let start = 0; start < col.length; start++) {
+      if (col[start].isDown) continue;
+      if (!isValidDescendingRun(col, start)) continue;
+
+      const mover = col[start];
+
+      for (let to = 0; to < 10; to++) {
+        if (from === to) continue;
+        const targetCol = decks[to] ?? [];
+        const targetTop = targetCol.length === 0 ? null : targetCol[targetCol.length - 1];
+        if (isValidMove(mover, targetTop)) {
+          const key = `${from}-${start}`;
+          if (!movableSet.has(key)) {
+            movableSet.add(key);
+            result.push({ deckIndex: from, cardIndex: start });
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  return result;
+};
+
 /** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
 export const findGameHint = (decks: Card[][]): GameHint => {
   for (let c = 0; c < 10; c++) {
