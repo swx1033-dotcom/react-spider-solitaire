@@ -1,0 +1,53 @@
+diff --git a/src/ui/Card.tsx b/src/ui/Card.tsx
+index e729170..be477ba 100644
+--- a/src/ui/Card.tsx
++++ b/src/ui/Card.tsx
+@@ -33,7 +33,10 @@ const Card: React.FC<CardProps> = ({
+   let selectedCards: HTMLElement[] = [];
+ 
+   const dragStart = (event: React.DragEvent<HTMLDivElement>): void => {
+-    if (!canDrag) return;
++    if (!canDrag) {
++      event.preventDefault();
++      return;
++    }
+ 
+     const currentCard = event.currentTarget;
+     const currentCardIndex = parseInt(
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..dde1112 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -127,15 +127,25 @@ export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
+   return null;
+ };
+ 
++export const getDraggableHeadIndex = (deck: Card[]): number => {
++  if (!deck || deck.length === 0) return -1;
++  let i = deck.length - 1;
++  if (deck[i].isDown) return -1;
++
++  while (i > 0) {
++    const current = deck[i];
++    const above = deck[i - 1];
++    if (above.isDown) break;
++    if (getRank(above.rank) !== getRank(current.rank) + 1) break;
++    i--;
++  }
++  return i;
++};
++
+ /** True if from `start` through the bottom of the column is face-up and strictly descending (single-suit Spider). */
+ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
+-  if (start < 0 || start >= deck.length) return false;
+-  if (deck[start].isDown) return false;
+-  for (let i = start; i < deck.length - 1; i++) {
+-    if (deck[i + 1].isDown) return false;
+-    if (getRank(deck[i].rank) !== getRank(deck[i + 1].rank) + 1) return false;
+-  }
+-  return true;
++  const headIndex = getDraggableHeadIndex(deck);
++  return headIndex !== -1 && start === headIndex;
+ };
+ 
+ export type GameHintKind = "complete" | "move" | "deal" | "stuck";

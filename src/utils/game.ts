@@ -127,15 +127,25 @@ export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
   return null;
 };
 
+export const getDraggableHeadIndex = (deck: Card[]): number => {
+  if (!deck || deck.length === 0) return -1;
+  let i = deck.length - 1;
+  if (deck[i].isDown) return -1;
+
+  while (i > 0) {
+    const current = deck[i];
+    const above = deck[i - 1];
+    if (above.isDown) break;
+    if (getRank(above.rank) !== getRank(current.rank) + 1) break;
+    i--;
+  }
+  return i;
+};
+
 /** True if from `start` through the bottom of the column is face-up and strictly descending (single-suit Spider). */
 export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
-  if (start < 0 || start >= deck.length) return false;
-  if (deck[start].isDown) return false;
-  for (let i = start; i < deck.length - 1; i++) {
-    if (deck[i + 1].isDown) return false;
-    if (getRank(deck[i].rank) !== getRank(deck[i + 1].rank) + 1) return false;
-  }
-  return true;
+  const headIndex = getDraggableHeadIndex(deck);
+  return headIndex !== -1 && start === headIndex;
 };
 
 export type GameHintKind = "complete" | "move" | "deal" | "stuck";
