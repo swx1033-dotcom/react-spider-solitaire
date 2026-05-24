@@ -71,6 +71,23 @@
   background-image: url("../assets/game/cardBack.png");
 }
 
+.highlightMovable {
+  animation: highlightPulse 0.8s ease-in-out infinite alternate;
+  box-shadow: 0 0 12px 4px rgba(255, 215, 0, 0.65);
+  filter: brightness(1.12);
+}
+
+@keyframes highlightPulse {
+  from {
+    box-shadow: 0 0 8px 2px rgba(255, 215, 0, 0.45);
+    filter: brightness(1.05);
+  }
+  to {
+    box-shadow: 0 0 18px 6px rgba(255, 215, 0, 0.85);
+    filter: brightness(1.18);
+  }
+}
+
 .card[data-index="0"] {
   top: 0px;
 }

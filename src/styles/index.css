@@ -57,3 +57,11 @@ code {
   transform: translateY(-2px) !important;
   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important;
 }
+
+.swal2-notification-toast {
+  background: rgba(45, 90, 39, 0.92) !important;
+  color: #e0e8d8 !important;
+  border-left: 4px solid #ffd700 !important;
+  font-size: 0.9rem !important;
+  border-radius: 6px !important;
+}

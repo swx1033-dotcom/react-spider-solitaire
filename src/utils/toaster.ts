@@ -24,6 +24,21 @@ export const showInfo = (message: string): void => {
   });
 };
 
+export const showNotification = (message: string): void => {
+  Swal.fire({
+    icon: "info",
+    text: message,
+    toast: true,
+    position: "bottom-end",
+    timer: 2500,
+    showConfirmButton: false,
+    timerProgressBar: false,
+    customClass: {
+      popup: "swal2-notification-toast",
+    },
+  });
+};
+
 export const showWonPopup = (restart: () => void): void => {
   Swal.fire({
     title: "🎉 Congratulations! 🎉",

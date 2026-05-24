@@ -7,6 +7,7 @@ interface HeaderProps {
   onNewGame: () => void;
   onUndo?: () => void;
   onHint?: () => void;
+  onHighlightMovable?: () => void;
   canUndo?: boolean;
   /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
   sessionKey?: number;
@@ -18,6 +19,7 @@ const Header: React.FC<HeaderProps> = ({
   onNewGame,
   onUndo,
   onHint,
+  onHighlightMovable,
   canUndo = false,
   sessionKey = 0,
 }) => {
@@ -81,6 +83,14 @@ const Header: React.FC<HeaderProps> = ({
         </button>
         <button type="button" className={styles.btn} onClick={() => onHint?.()}>
           💡 Hint
+        </button>
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.highlightBtn}`}
+          onClick={() => onHighlightMovable?.()}
+          title="Highlight all movable cards (3 seconds)"
+        >
+          ✨ Highlight
         </button>
       </div>
       <div className={styles.centerSection}>

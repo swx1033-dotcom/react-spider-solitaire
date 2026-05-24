@@ -138,6 +138,39 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
   return true;
 };
 
+export type MovableSource = { deckIndex: number; cardIndex: number };
+
+export const findAllMovableSources = (decks: Card[][]): MovableSource[] => {
+  const sources: MovableSource[] = [];
+
+  for (let from = 0; from < 10; from++) {
+    const col = decks[from] ?? [];
+    for (let start = 0; start < col.length; start++) {
+      if (col[start].isDown) continue;
+      if (!isValidDescendingRun(col, start)) continue;
+
+      const mover = col[start];
+      let hasTarget = false;
+      for (let to = 0; to < 10; to++) {
+        if (to === from) continue;
+        const targetCol = decks[to] ?? [];
+        const targetTop =
+          targetCol.length === 0 ? null : targetCol[targetCol.length - 1];
+        if (targetTop?.isDown) continue;
+        if (isValidMove(mover, targetTop)) {
+          hasTarget = true;
+          break;
+        }
+      }
+      if (hasTarget) {
+        sources.push({ deckIndex: from, cardIndex: start });
+      }
+    }
+  }
+
+  return sources;
+};
+
 export type GameHintKind = "complete" | "move" | "deal" | "stuck";
 
 export type GameHint = {

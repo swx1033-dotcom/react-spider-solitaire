@@ -1,11 +1,12 @@
-import React, { useState, useEffect, useRef } from "react";
-import { initiateGame, findGameHint } from "../utils/game";
+import React, { useState, useEffect, useRef, useCallback } from "react";
+import { initiateGame, findGameHint, findAllMovableSources } from "../utils/game";
 import CardHolder from "./CardHolder";
 import styles from "../styles/CardBoard.module.css";
+import cardStyles from "../styles/Card.module.css";
 import Header from "./Header";
 import CardBoardBottom from "./CardBoardBottom";
 import { GameState } from "../types/game";
-import { showInfo, showWonPopup } from "../utils/toaster";
+import { showInfo, showWonPopup, showNotification } from "../utils/toaster";
 
 const cloneGameState = (g: GameState): GameState => ({
   completed: g.completed,
@@ -23,6 +24,48 @@ const CardBoard: React.FC = () => {
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [gameKey, setGameKey] = useState<number>(0);
   const winPopupScheduledRef = useRef(false);
+  const highlightTimerRef = useRef<number | null>(null);
+  const highlightedElementsRef = useRef<HTMLElement[]>([]);
+
+  const clearHighlights = useCallback((): void => {
+    if (highlightTimerRef.current !== null) {
+      window.clearTimeout(highlightTimerRef.current);
+      highlightTimerRef.current = null;
+    }
+    highlightedElementsRef.current.forEach((el) => {
+      el.classList.remove(cardStyles.highlightMovable);
+    });
+    highlightedElementsRef.current = [];
+  }, []);
+
+  const handleHighlightMovable = useCallback((): void => {
+    clearHighlights();
+
+    const sources = findAllMovableSources(game.decks);
+
+    if (sources.length === 0) {
+      showNotification(
+        "No movable cards found — try dealing from stock or Undo.",
+      );
+      return;
+    }
+
+    const elements: HTMLElement[] = [];
+    for (const { deckIndex, cardIndex } of sources) {
+      const el = document.querySelector(
+        `[data-deck-index="${deckIndex}"][data-index="${cardIndex}"]`,
+      ) as HTMLElement | null;
+      if (el) {
+        el.classList.add(cardStyles.highlightMovable);
+        elements.push(el);
+      }
+    }
+    highlightedElementsRef.current = elements;
+
+    highlightTimerRef.current = window.setTimeout(() => {
+      clearHighlights();
+    }, 3000);
+  }, [game.decks, clearHighlights]);
 
   useEffect(() => {
     startNewGame();
@@ -74,6 +117,7 @@ const CardBoard: React.FC = () => {
   const updateGameWithHistory = (
     next: React.SetStateAction<GameState>,
   ): void => {
+    clearHighlights();
     setGame((prev) => {
       const resolved = typeof next === "function" ? next(prev) : next;
       setGameHistory((h) => [...h, cloneGameState(prev)]);
@@ -90,6 +134,7 @@ const CardBoard: React.FC = () => {
         onNewGame={startNewGame}
         onUndo={handleUndo}
         onHint={handleHint}
+        onHighlightMovable={handleHighlightMovable}
         canUndo={canUndo}
         sessionKey={gameKey}
       />
