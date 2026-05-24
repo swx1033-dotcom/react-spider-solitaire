@@ -86,7 +86,6 @@ export const isValidMove = (
   return selectedRank === targetRank - 1;
 };
 
-/** Completed K→A run in tableau; startIndex is the index within the full column array. */
 export type CompletedSetResult = { startIndex: number; cards: Card[] };
 
 export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
@@ -127,7 +126,6 @@ export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
   return null;
 };
 
-/** True if from `start` through the bottom of the column is face-up and strictly descending (single-suit Spider). */
 export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
   if (start < 0 || start >= deck.length) return false;
   if (deck[start].isDown) return false;
@@ -138,6 +136,68 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
   return true;
 };
 
+export type MovableSource = {
+  deckIndex: number;
+  cardIndex: number;
+};
+
+export const findMovableSources = (decks: Card[][]): MovableSource[] => {
+  const tableau = decks.slice(0, 10);
+  const descendingRunStarts = tableau.map((column) => {
+    const validStarts = new Array<boolean>(column.length).fill(false);
+
+    for (let i = column.length - 1; i >= 0; i--) {
+      const currentCard = column[i];
+      if (currentCard.isDown) continue;
+
+      if (i === column.length - 1) {
+        validStarts[i] = true;
+        continue;
+      }
+
+      const nextCard = column[i + 1];
+      validStarts[i] =
+        validStarts[i + 1] &&
+        !nextCard.isDown &&
+        getRank(currentCard.rank) === getRank(nextCard.rank) + 1;
+    }
+
+    return validStarts;
+  });
+
+  const targetTops = tableau.map((column) => {
+    const topCard = column.length === 0 ? null : column[column.length - 1];
+    return topCard?.isDown ? null : topCard;
+  });
+
+  const sources: MovableSource[] = [];
+
+  for (let from = 0; from < tableau.length; from++) {
+    const column = tableau[from] ?? [];
+
+    for (let start = 0; start < column.length; start++) {
+      if (!descendingRunStarts[from]?.[start]) continue;
+
+      const mover = column[start];
+      let canMoveSomewhere = false;
+
+      for (let to = 0; to < targetTops.length; to++) {
+        if (from === to) continue;
+        if (isValidMove(mover, targetTops[to])) {
+          canMoveSomewhere = true;
+          break;
+        }
+      }
+
+      if (canMoveSomewhere) {
+        sources.push({ deckIndex: from, cardIndex: start });
+      }
+    }
+  }
+
+  return sources;
+};
+
 export type GameHintKind = "complete" | "move" | "deal" | "stuck";
 
 export type GameHint = {
@@ -145,7 +205,6 @@ export type GameHint = {
   text: string;
 };
 
-/** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
 export const findGameHint = (decks: Card[][]): GameHint => {
   for (let c = 0; c < 10; c++) {
     if (checkCompletedSet(decks[c] ?? [])) {

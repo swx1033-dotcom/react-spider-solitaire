@@ -1,0 +1,373 @@
+diff --git a/src/styles/Card.module.css b/src/styles/Card.module.css
+index 3764dfd..4918875 100644
+--- a/src/styles/Card.module.css
++++ b/src/styles/Card.module.css
+@@ -15,6 +15,32 @@
+   z-index: 999;
+ }
+ 
++.card.movableSourceHighlight {
++  box-shadow:
++    0 0 0 3px rgba(255, 226, 122, 0.95),
++    0 0 22px rgba(255, 226, 122, 0.9),
++    0 0 34px rgba(255, 166, 0, 0.45);
++  filter: brightness(1.08) saturate(1.12);
++  animation: movableSourcePulse 0.9s ease-in-out infinite;
++}
++
++@keyframes movableSourcePulse {
++  0%,
++  100% {
++    box-shadow:
++      0 0 0 3px rgba(255, 226, 122, 0.95),
++      0 0 18px rgba(255, 226, 122, 0.8),
++      0 0 28px rgba(255, 166, 0, 0.35);
++  }
++
++  50% {
++    box-shadow:
++      0 0 0 4px rgba(255, 234, 156, 1),
++      0 0 28px rgba(255, 234, 156, 0.98),
++      0 0 38px rgba(255, 174, 0, 0.55);
++  }
++}
++
+ .card[data-rank="1"] {
+   background-image: url("../assets/game/A.png");
+ }
+diff --git a/src/styles/Header.module.css b/src/styles/Header.module.css
+index 2ec4223..5f79b58 100644
+--- a/src/styles/Header.module.css
++++ b/src/styles/Header.module.css
+@@ -113,6 +113,14 @@
+   background: linear-gradient(145deg, #6a8c4a, #5a7c3a);
+ }
+ 
++.highlightBtn {
++  background: linear-gradient(145deg, #6c52a3, #4f3d86);
++}
++
++.highlightBtn:hover {
++  background: linear-gradient(145deg, #7d63b5, #604e98);
++}
++
+ .disabled {
+   opacity: 0.5;
+   cursor: not-allowed;
+@@ -124,7 +132,6 @@
+   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2) !important;
+ }
+ 
+-/* Responsive Design */
+ @media (max-width: 768px) {
+   .header {
+     padding: 10px 15px;
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..b3825e5 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -1,10 +1,15 @@
+ import React, { useState, useEffect, useRef } from "react";
+-import { initiateGame, findGameHint } from "../utils/game";
++import {
++  initiateGame,
++  findGameHint,
++  findMovableSources,
++} from "../utils/game";
+ import CardHolder from "./CardHolder";
+ import styles from "../styles/CardBoard.module.css";
++import cardStyles from "../styles/Card.module.css";
+ import Header from "./Header";
+ import CardBoardBottom from "./CardBoardBottom";
+-import { GameState } from "../types/game";
++import type { GameState, Card } from "../types/game";
+ import { showInfo, showWonPopup } from "../utils/toaster";
+ 
+ const cloneGameState = (g: GameState): GameState => ({
+@@ -23,9 +28,29 @@ const CardBoard: React.FC = () => {
+   const [canUndo, setCanUndo] = useState<boolean>(false);
+   const [gameKey, setGameKey] = useState<number>(0);
+   const winPopupScheduledRef = useRef(false);
++  const highlightedCardsRef = useRef<HTMLElement[]>([]);
++  const highlightTimerRef = useRef<number | null>(null);
++  const previousMoveCountRef = useRef(0);
++
++  const clearHighlightedMovableCards = (): void => {
++    if (highlightTimerRef.current !== null) {
++      window.clearTimeout(highlightTimerRef.current);
++      highlightTimerRef.current = null;
++    }
++
++    highlightedCardsRef.current.forEach((cardElement: HTMLElement) => {
++      cardElement.classList.remove(cardStyles.movableSourceHighlight);
++    });
++
++    highlightedCardsRef.current = [];
++  };
+ 
+   useEffect(() => {
+     startNewGame();
++
++    return () => {
++      clearHighlightedMovableCards();
++    };
+   }, []);
+ 
+   useEffect(() => {
+@@ -44,23 +69,34 @@ const CardBoard: React.FC = () => {
+     return () => window.clearTimeout(t);
+   }, [game.completed]);
+ 
++  useEffect(() => {
++    if (previousMoveCountRef.current !== game.moveCount) {
++      clearHighlightedMovableCards();
++      previousMoveCountRef.current = game.moveCount;
++    }
++  }, [game.moveCount]);
++
+   const startNewGame = (): void => {
++    clearHighlightedMovableCards();
+     const init = initiateGame();
+     const newGameState: GameState = {
+       decks: init.decks,
+       completed: 0,
+       moveCount: 0,
+     };
++    previousMoveCountRef.current = 0;
+     setGame(newGameState);
+     setGameHistory([]);
+     setCanUndo(false);
+-    setGameKey((prev) => prev + 1);
++    setGameKey((prev: number) => prev + 1);
+   };
+ 
+   const handleUndo = (): void => {
+-    setGameHistory((prev) => {
++    clearHighlightedMovableCards();
++    setGameHistory((prev: GameState[]) => {
+       if (prev.length === 0) return prev;
+       const previousState = prev[prev.length - 1];
++      previousMoveCountRef.current = previousState.moveCount;
+       setGame(previousState);
+       setCanUndo(prev.length - 1 > 0);
+       return prev.slice(0, -1);
+@@ -71,12 +107,50 @@ const CardBoard: React.FC = () => {
+     showInfo(findGameHint(game.decks).text);
+   };
+ 
++  const handleHighlightMovableCards = (): void => {
++    clearHighlightedMovableCards();
++
++    const movableSources = findMovableSources(game.decks);
++    if (movableSources.length === 0) {
++      const nextHint = findGameHint(game.decks);
++      if (nextHint.kind === "deal") {
++        showInfo("当前没有可高亮的移动源牌，可以先发一列新牌。");
++        return;
++      }
++      if (nextHint.kind === "complete") {
++        showInfo("当前没有可高亮的移动源牌，但已有完整顺子等待你完成下一步。");
++        return;
++      }
++      showInfo("当前没有可高亮的移动源牌。");
++      return;
++    }
++
++    const highlightedElements = movableSources
++      .map(({ deckIndex, cardIndex }) => {
++        return document.querySelector(
++          `[data-deck-index="${deckIndex}"][data-index="${cardIndex}"]`,
++        ) as HTMLElement | null;
++      })
++      .filter((element): element is HTMLElement => element !== null);
++
++    highlightedElements.forEach((element: HTMLElement) => {
++      element.classList.add(cardStyles.movableSourceHighlight);
++    });
++
++    highlightedCardsRef.current = highlightedElements;
++    highlightTimerRef.current = window.setTimeout(() => {
++      clearHighlightedMovableCards();
++    }, 3000);
++  };
++
+   const updateGameWithHistory = (
+     next: React.SetStateAction<GameState>,
+   ): void => {
+-    setGame((prev) => {
++    clearHighlightedMovableCards();
++    setGame((prev: GameState) => {
+       const resolved = typeof next === "function" ? next(prev) : next;
+-      setGameHistory((h) => [...h, cloneGameState(prev)]);
++      previousMoveCountRef.current = resolved.moveCount;
++      setGameHistory((history: GameState[]) => [...history, cloneGameState(prev)]);
+       setCanUndo(true);
+       return resolved;
+     });
+@@ -90,11 +164,12 @@ const CardBoard: React.FC = () => {
+         onNewGame={startNewGame}
+         onUndo={handleUndo}
+         onHint={handleHint}
++        onHighlightMoves={handleHighlightMovableCards}
+         canUndo={canUndo}
+         sessionKey={gameKey}
+       />
+       <div className={styles.board}>
+-        {game.decks.slice(0, 10).map((deck, index) => (
++        {game.decks.slice(0, 10).map((deck: Card[], index: number) => (
+           <CardHolder
+             deck={deck}
+             game={game}
+diff --git a/src/ui/Header.tsx b/src/ui/Header.tsx
+index 4315628..adff5ce 100644
+--- a/src/ui/Header.tsx
++++ b/src/ui/Header.tsx
+@@ -7,8 +7,8 @@ interface HeaderProps {
+   onNewGame: () => void;
+   onUndo?: () => void;
+   onHint?: () => void;
++  onHighlightMoves?: () => void;
+   canUndo?: boolean;
+-  /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
+   sessionKey?: number;
+ }
+ 
+@@ -18,6 +18,7 @@ const Header: React.FC<HeaderProps> = ({
+   onNewGame,
+   onUndo,
+   onHint,
++  onHighlightMoves,
+   canUndo = false,
+   sessionKey = 0,
+ }) => {
+@@ -44,15 +45,11 @@ const Header: React.FC<HeaderProps> = ({
+   }, [sessionKey]);
+ 
+   const formatTime = (seconds: number): string => {
+-    const hours = Math.floor(seconds / 3600);
+-    const minutes = Math.floor((seconds % 3600) / 60);
++    const mins = Math.floor(seconds / 60);
+     const secs = seconds % 60;
+-    if (hours > 0) {
+-      return `${hours}:${minutes.toString().padStart(2, "0")}:${secs
+-        .toString()
+-        .padStart(2, "0")}`;
+-    }
+-    return `${minutes}:${secs.toString().padStart(2, "0")}`;
++    return `${mins.toString().padStart(2, "0")}:${secs
++      .toString()
++      .padStart(2, "0")}`;
+   };
+ 
+   const handleNewGame = (): void => {
+@@ -82,6 +79,13 @@ const Header: React.FC<HeaderProps> = ({
+         <button type="button" className={styles.btn} onClick={() => onHint?.()}>
+           💡 Hint
+         </button>
++        <button
++          type="button"
++          className={`${styles.btn} ${styles.highlightBtn}`}
++          onClick={() => onHighlightMoves?.()}
++        >
++          ✨ Highlight
++        </button>
+       </div>
+       <div className={styles.centerSection}>
+         <div className={styles.stats}>
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..be982f7 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -86,7 +86,6 @@ export const isValidMove = (
+   return selectedRank === targetRank - 1;
+ };
+ 
+-/** Completed K→A run in tableau; startIndex is the index within the full column array. */
+ export type CompletedSetResult = { startIndex: number; cards: Card[] };
+ 
+ export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
+@@ -127,7 +126,6 @@ export const checkCompletedSet = (deck: Card[]): CompletedSetResult | null => {
+   return null;
+ };
+ 
+-/** True if from `start` through the bottom of the column is face-up and strictly descending (single-suit Spider). */
+ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
+   if (start < 0 || start >= deck.length) return false;
+   if (deck[start].isDown) return false;
+@@ -138,6 +136,68 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
+   return true;
+ };
+ 
++export type MovableSource = {
++  deckIndex: number;
++  cardIndex: number;
++};
++
++export const findMovableSources = (decks: Card[][]): MovableSource[] => {
++  const tableau = decks.slice(0, 10);
++  const descendingRunStarts = tableau.map((column) => {
++    const validStarts = new Array<boolean>(column.length).fill(false);
++
++    for (let i = column.length - 1; i >= 0; i--) {
++      const currentCard = column[i];
++      if (currentCard.isDown) continue;
++
++      if (i === column.length - 1) {
++        validStarts[i] = true;
++        continue;
++      }
++
++      const nextCard = column[i + 1];
++      validStarts[i] =
++        validStarts[i + 1] &&
++        !nextCard.isDown &&
++        getRank(currentCard.rank) === getRank(nextCard.rank) + 1;
++    }
++
++    return validStarts;
++  });
++
++  const targetTops = tableau.map((column) => {
++    const topCard = column.length === 0 ? null : column[column.length - 1];
++    return topCard?.isDown ? null : topCard;
++  });
++
++  const sources: MovableSource[] = [];
++
++  for (let from = 0; from < tableau.length; from++) {
++    const column = tableau[from] ?? [];
++
++    for (let start = 0; start < column.length; start++) {
++      if (!descendingRunStarts[from]?.[start]) continue;
++
++      const mover = column[start];
++      let canMoveSomewhere = false;
++
++      for (let to = 0; to < targetTops.length; to++) {
++        if (from === to) continue;
++        if (isValidMove(mover, targetTops[to])) {
++          canMoveSomewhere = true;
++          break;
++        }
++      }
++
++      if (canMoveSomewhere) {
++        sources.push({ deckIndex: from, cardIndex: start });
++      }
++    }
++  }
++
++  return sources;
++};
++
+ export type GameHintKind = "complete" | "move" | "deal" | "stuck";
+ 
+ export type GameHint = {
+@@ -145,7 +205,6 @@ export type GameHint = {
+   text: string;
+ };
+ 
+-/** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
+ export const findGameHint = (decks: Card[][]): GameHint => {
+   for (let c = 0; c < 10; c++) {
+     if (checkCompletedSet(decks[c] ?? [])) {

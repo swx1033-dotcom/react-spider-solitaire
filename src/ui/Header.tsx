@@ -7,8 +7,8 @@ interface HeaderProps {
   onNewGame: () => void;
   onUndo?: () => void;
   onHint?: () => void;
+  onHighlightMoves?: () => void;
   canUndo?: boolean;
-  /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
   sessionKey?: number;
 }
 
@@ -18,6 +18,7 @@ const Header: React.FC<HeaderProps> = ({
   onNewGame,
   onUndo,
   onHint,
+  onHighlightMoves,
   canUndo = false,
   sessionKey = 0,
 }) => {
@@ -44,15 +45,11 @@ const Header: React.FC<HeaderProps> = ({
   }, [sessionKey]);
 
   const formatTime = (seconds: number): string => {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
+    const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
-    if (hours > 0) {
-      return `${hours}:${minutes.toString().padStart(2, "0")}:${secs
-        .toString()
-        .padStart(2, "0")}`;
-    }
-    return `${minutes}:${secs.toString().padStart(2, "0")}`;
+    return `${mins.toString().padStart(2, "0")}:${secs
+      .toString()
+      .padStart(2, "0")}`;
   };
 
   const handleNewGame = (): void => {
@@ -81,6 +78,13 @@ const Header: React.FC<HeaderProps> = ({
         </button>
         <button type="button" className={styles.btn} onClick={() => onHint?.()}>
           💡 Hint
+        </button>
+        <button
+          type="button"
+          className={`${styles.btn} ${styles.highlightBtn}`}
+          onClick={() => onHighlightMoves?.()}
+        >
+          ✨ Highlight
         </button>
       </div>
       <div className={styles.centerSection}>

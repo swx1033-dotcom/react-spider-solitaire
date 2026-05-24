@@ -113,6 +113,14 @@
   background: linear-gradient(145deg, #6a8c4a, #5a7c3a);
 }
 
+.highlightBtn {
+  background: linear-gradient(145deg, #6c52a3, #4f3d86);
+}
+
+.highlightBtn:hover {
+  background: linear-gradient(145deg, #7d63b5, #604e98);
+}
+
 .disabled {
   opacity: 0.5;
   cursor: not-allowed;
@@ -124,7 +132,6 @@
   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2) !important;
 }
 
-/* Responsive Design */
 @media (max-width: 768px) {
   .header {
     padding: 10px 15px;
