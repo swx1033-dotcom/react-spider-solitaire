@@ -138,6 +138,29 @@ export const isValidDescendingRun = (deck: Card[], start: number): boolean => {
   return true;
 };
 
+export const getMovableRunStartIndex = (deck: Card[]): number => {
+  if (deck.length === 0) return -1;
+
+  let startIndex = deck.length - 1;
+  if (deck[startIndex].isDown) return -1;
+
+  while (startIndex > 0) {
+    const prev = deck[startIndex - 1];
+    const curr = deck[startIndex];
+    if (prev.isDown) break;
+    if (getRank(prev.rank) !== getRank(curr.rank) + 1) break;
+    startIndex--;
+  }
+
+  return startIndex;
+};
+
+export const canStartDragAtIndex = (deck: Card[], index: number): boolean => {
+  if (index < 0 || index >= deck.length) return false;
+  if (deck[index].isDown) return false;
+  return getMovableRunStartIndex(deck) === index;
+};
+
 export type GameHintKind = "complete" | "move" | "deal" | "stuck";
 
 export type GameHint = {
@@ -165,16 +188,14 @@ export const findGameHint = (decks: Card[][]): GameHint => {
     for (let from = 0; from < 10; from++) {
       if (from === to) continue;
       const col = decks[from] ?? [];
-      for (let start = 0; start < col.length; start++) {
-        if (col[start].isDown) continue;
-        if (!isValidDescendingRun(col, start)) continue;
-        const mover = col[start];
-        if (isValidMove(mover, targetTop)) {
-          return {
-            kind: "move",
-            text: `Try moving from column ${from + 1} to column ${to + 1}.`,
-          };
-        }
+      const movableStart = getMovableRunStartIndex(col);
+      if (movableStart === -1) continue;
+      const mover = col[movableStart];
+      if (isValidMove(mover, targetTop)) {
+        return {
+          kind: "move",
+          text: `Try moving from column ${from + 1} to column ${to + 1}.`,
+        };
       }
     }
   }

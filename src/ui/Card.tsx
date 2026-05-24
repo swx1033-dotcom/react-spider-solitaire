@@ -3,7 +3,7 @@ import {
   getRank,
   checkCompletedSet,
   isValidMove,
-  isValidDescendingRun,
+  canStartDragAtIndex,
 } from "../utils/game";
 import type { GameState, Card as CardType } from "../types/game";
 import styles from "../styles/Card.module.css";
@@ -26,40 +26,36 @@ const Card: React.FC<CardProps> = ({
   if (!data || !data.rank) return null;
 
   const column = game.decks[deckIndex] ?? [];
-  const canDrag = !data.isDown && isValidDescendingRun(column, index);
+  const canDrag = canStartDragAtIndex(column, index);
 
   let mouseX: number;
   let mouseY: number;
   let selectedCards: HTMLElement[] = [];
 
   const dragStart = (event: React.DragEvent<HTMLDivElement>): void => {
-    if (!canDrag) return;
+    if (!canDrag) {
+      event.preventDefault();
+      return;
+    }
 
     const currentCard = event.currentTarget;
     const currentCardIndex = parseInt(
       currentCard.getAttribute("data-index") || "0",
     );
 
+    if (!canStartDragAtIndex(column, currentCardIndex)) {
+      event.preventDefault();
+      selectedCards = [];
+      return;
+    }
+
     selectedCards.length = 0;
-    selectedCards.push(currentCard);
-
-    let currentRank = getRank(
-      currentCard.getAttribute("data-original-rank") || "0",
-    );
-
-    const colLen = column.length;
-    for (let i = currentCardIndex + 1; i < colLen; i++) {
+    for (let i = currentCardIndex; i < column.length; i++) {
       const cardElement = document.querySelector(
         `[data-deck-index="${deckIndex}"][data-index="${i}"]`,
       ) as HTMLElement;
       if (!cardElement) break;
-      if (cardElement.getAttribute("data-isdown") === "true") break;
-      const siblingRank = getRank(
-        cardElement.getAttribute("data-original-rank") || "0",
-      );
-      if (currentRank !== siblingRank + 1) break;
       selectedCards.push(cardElement);
-      currentRank = siblingRank;
     }
 
     mouseX = event.pageX;
@@ -138,6 +134,14 @@ const Card: React.FC<CardProps> = ({
       selectedCards = [];
       return;
     }
+    const selectedCardsStartingIndex = parseInt(
+      selectedCards[0].getAttribute("data-index") || "0",
+    );
+    const sourceDeck = game.decks[sourceDeckIndex] ?? [];
+    if (!canStartDragAtIndex(sourceDeck, selectedCardsStartingIndex)) {
+      selectedCards = [];
+      return;
+    }
     const topMovedRankStr =
       selectedCards[0].getAttribute("data-original-rank") || "0";
     const topMovedCard: CardType = {
@@ -150,9 +154,6 @@ const Card: React.FC<CardProps> = ({
     const moveAllowed = isValidMove(topMovedCard, targetTop);
     if (moveAllowed) {
       const tempDecks = game.decks.map((col) => [...col]);
-      const selectedCardsStartingIndex = parseInt(
-        selectedCards[0].getAttribute("data-index") || "0",
-      );
       const selectedCardsCount = selectedCards.length;
       const transferCards = tempDecks[sourceDeckIndex].splice(
         selectedCardsStartingIndex,
