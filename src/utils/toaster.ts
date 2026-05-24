@@ -60,3 +60,36 @@ export const showWonPopup = (restart: () => void): void => {
     }
   });
 };
+
+export const showConfirmNewGame = (onConfirm: () => void): void => {
+  Swal.fire({
+    title: "Game Paused",
+    html: `
+			<div style="text-align: center;">
+				<p style="color: #666; font-size: 16px; margin-bottom: 10px;">
+					The game is currently paused.
+				</p>
+				<p style="color: #666; font-size: 16px;">
+					Starting a new game will discard your current progress. Continue?
+				</p>
+			</div>
+		`,
+    icon: "warning",
+    showCancelButton: true,
+    confirmButtonText: "Start New Game",
+    cancelButtonText: "Cancel",
+    confirmButtonColor: "#dc3545",
+    cancelButtonColor: "#6c757d",
+    showCloseButton: true,
+    allowOutsideClick: false,
+    customClass: {
+      popup: "swal2-custom-popup",
+      title: "swal2-custom-title",
+      htmlContainer: "swal2-custom-html",
+    },
+  }).then((result) => {
+    if (result.isConfirmed) {
+      onConfirm();
+    }
+  });
+};

@@ -34,6 +34,8 @@ vi.mock("../../src/styles/Header.module.css", () => ({
     statValue: "stat-value-class",
     completed: "completed-class",
     iconBtn: "icon-btn-class",
+    pauseOverlay: "pause-overlay-class",
+    pauseLabel: "pause-label-class",
   },
 }));
 

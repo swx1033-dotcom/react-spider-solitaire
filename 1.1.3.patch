@@ -1,0 +1,840 @@
+diff --git a/src/styles/Header.module.css b/src/styles/Header.module.css
+index 2ec4223..3784590 100644
+--- a/src/styles/Header.module.css
++++ b/src/styles/Header.module.css
+@@ -124,6 +124,27 @@
+   box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2) !important;
+ }
+ 
++.pauseOverlay {
++  position: absolute;
++  top: 0;
++  left: 0;
++  right: 0;
++  bottom: 0;
++  background: rgba(0, 0, 0, 0.4);
++  display: flex;
++  align-items: center;
++  justify-content: center;
++  pointer-events: none;
++}
++
++.pauseLabel {
++  font-size: 1.2rem;
++  font-weight: bold;
++  color: #ffd700;
++  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.5);
++  letter-spacing: 0.15em;
++}
++
+ /* Responsive Design */
+ @media (max-width: 768px) {
+   .header {
+diff --git a/src/ui/Card.tsx b/src/ui/Card.tsx
+index e729170..b5a8b35 100644
+--- a/src/ui/Card.tsx
++++ b/src/ui/Card.tsx
+@@ -14,6 +14,7 @@ interface CardProps {
+   game: GameState;
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   deckIndex: number;
++  isPaused: boolean;
+ }
+ 
+ const Card: React.FC<CardProps> = ({
+@@ -22,6 +23,7 @@ const Card: React.FC<CardProps> = ({
+   game,
+   setGame,
+   deckIndex,
++  isPaused,
+ }) => {
+   if (!data || !data.rank) return null;
+ 
+@@ -34,6 +36,7 @@ const Card: React.FC<CardProps> = ({
+ 
+   const dragStart = (event: React.DragEvent<HTMLDivElement>): void => {
+     if (!canDrag) return;
++    if (isPaused) return;
+ 
+     const currentCard = event.currentTarget;
+     const currentCardIndex = parseInt(
+@@ -72,6 +75,7 @@ const Card: React.FC<CardProps> = ({
+   };
+ 
+   const drag = (event: React.DragEvent<HTMLDivElement>): void => {
++    if (isPaused) return;
+     const diffX = event.pageX - mouseX;
+     const diffY = event.pageY - mouseY;
+     selectedCards.forEach((card, index) => {
+@@ -83,21 +87,30 @@ const Card: React.FC<CardProps> = ({
+ 
+   const dragEnd = (event: React.DragEvent<HTMLDivElement>): void => {
+     if (!selectedCards.length) return;
++
+     selectedCards.forEach((card) => {
+       card.style.visibility = "hidden";
+     });
++
+     const xEndPoint = event.pageX;
+     const yEndPoint = event.pageY;
+     const dropTarget = document.elementFromPoint(
+       xEndPoint,
+       yEndPoint,
+     ) as HTMLElement;
++
+     selectedCards.forEach((card, index) => {
+       card.style.visibility = "visible";
+       card.classList.remove(styles.dragging);
+       const originalTop = index * 30;
+       card.style.transform = `translate(0px,${originalTop}px)`;
+     });
++
++    if (isPaused) {
++      selectedCards = [];
++      return;
++    }
++
+     if (!dropTarget) {
+       selectedCards = [];
+       return;
+@@ -203,7 +216,7 @@ const Card: React.FC<CardProps> = ({
+ 
+   return (
+     <div
+-      draggable={canDrag}
++      draggable={canDrag && !isPaused}
+       data-rank={getRank(data.rank).toString()}
+       data-original-rank={data.rank}
+       onDragStart={dragStart}
+@@ -219,4 +232,4 @@ const Card: React.FC<CardProps> = ({
+   );
+ };
+ 
+-export default Card;
++export default Card;
+\ No newline at end of file
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..b9ba351 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -5,7 +5,7 @@ import styles from "../styles/CardBoard.module.css";
+ import Header from "./Header";
+ import CardBoardBottom from "./CardBoardBottom";
+ import { GameState } from "../types/game";
+-import { showInfo, showWonPopup } from "../utils/toaster";
++import { showInfo, showWonPopup, showConfirmNewGame } from "../utils/toaster";
+ 
+ const cloneGameState = (g: GameState): GameState => ({
+   completed: g.completed,
+@@ -22,6 +22,7 @@ const CardBoard: React.FC = () => {
+   const [, setGameHistory] = useState<GameState[]>([]);
+   const [canUndo, setCanUndo] = useState<boolean>(false);
+   const [gameKey, setGameKey] = useState<number>(0);
++  const [isPaused, setIsPaused] = useState<boolean>(false);
+   const winPopupScheduledRef = useRef(false);
+ 
+   useEffect(() => {
+@@ -54,10 +55,26 @@ const CardBoard: React.FC = () => {
+     setGame(newGameState);
+     setGameHistory([]);
+     setCanUndo(false);
++    setIsPaused(false);
+     setGameKey((prev) => prev + 1);
+   };
+ 
++  const handleTogglePause = (): void => {
++    setIsPaused((prev) => !prev);
++  };
++
++  const handleNewGameRequest = (): void => {
++    if (isPaused) {
++      showConfirmNewGame(() => {
++        startNewGame();
++      });
++    } else {
++      startNewGame();
++    }
++  };
++
+   const handleUndo = (): void => {
++    if (isPaused) return;
+     setGameHistory((prev) => {
+       if (prev.length === 0) return prev;
+       const previousState = prev[prev.length - 1];
+@@ -68,12 +85,14 @@ const CardBoard: React.FC = () => {
+   };
+ 
+   const handleHint = (): void => {
++    if (isPaused) return;
+     showInfo(findGameHint(game.decks).text);
+   };
+ 
+   const updateGameWithHistory = (
+     next: React.SetStateAction<GameState>,
+   ): void => {
++    if (isPaused) return;
+     setGame((prev) => {
+       const resolved = typeof next === "function" ? next(prev) : next;
+       setGameHistory((h) => [...h, cloneGameState(prev)]);
+@@ -87,10 +106,12 @@ const CardBoard: React.FC = () => {
+       <Header
+         completed={game.completed}
+         moveCount={game.moveCount}
+-        onNewGame={startNewGame}
++        onNewGame={handleNewGameRequest}
+         onUndo={handleUndo}
+         onHint={handleHint}
+         canUndo={canUndo}
++        isPaused={isPaused}
++        onTogglePause={handleTogglePause}
+         sessionKey={gameKey}
+       />
+       <div className={styles.board}>
+@@ -100,6 +121,7 @@ const CardBoard: React.FC = () => {
+             game={game}
+             deckIndex={index}
+             setGame={updateGameWithHistory}
++            isPaused={isPaused}
+             key={`pile${index}`}
+           />
+         ))}
+@@ -108,6 +130,7 @@ const CardBoard: React.FC = () => {
+         game={game}
+         setGame={updateGameWithHistory}
+         stockDecks={game.decks.slice(10)}
++        isPaused={isPaused}
+       />
+     </div>
+   );
+diff --git a/src/ui/CardBoardBottom.tsx b/src/ui/CardBoardBottom.tsx
+index 6ee89c5..735e41f 100644
+--- a/src/ui/CardBoardBottom.tsx
++++ b/src/ui/CardBoardBottom.tsx
+@@ -7,12 +7,14 @@ interface CardBoardBottomProps {
+   game: GameState;
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   stockDecks: Card[][];
++  isPaused: boolean;
+ }
+ 
+ const CardBoardBottom: React.FC<CardBoardBottomProps> = ({
+   game,
+   setGame,
+   stockDecks,
++  isPaused,
+ }) => {
+   return (
+     <div className={styles.bottomCardBoard}>
+@@ -23,10 +25,11 @@ const CardBoardBottom: React.FC<CardBoardBottomProps> = ({
+           setGame={setGame}
+           deck={stockDeck}
+           index={index}
++          isPaused={isPaused}
+         />
+       ))}
+     </div>
+   );
+ };
+ 
+-export default CardBoardBottom;
++export default CardBoardBottom;
+\ No newline at end of file
+diff --git a/src/ui/CardHolder.tsx b/src/ui/CardHolder.tsx
+index 85554ff..7e127d0 100644
+--- a/src/ui/CardHolder.tsx
++++ b/src/ui/CardHolder.tsx
+@@ -8,6 +8,7 @@ interface CardHolderProps {
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   deck: CardType[];
+   deckIndex: number;
++  isPaused: boolean;
+ }
+ 
+ const CardHolder: React.FC<CardHolderProps> = ({
+@@ -15,6 +16,7 @@ const CardHolder: React.FC<CardHolderProps> = ({
+   setGame,
+   deck,
+   deckIndex,
++  isPaused,
+ }) => {
+   const validCards = deck.filter((card) => card && card.rank);
+ 
+@@ -44,10 +46,11 @@ const CardHolder: React.FC<CardHolderProps> = ({
+           deckIndex={deckIndex}
+           game={game}
+           setGame={setGame}
++          isPaused={isPaused}
+         />
+       ))}
+     </div>
+   );
+ };
+ 
+-export default CardHolder;
++export default CardHolder;
+\ No newline at end of file
+diff --git a/src/ui/Header.tsx b/src/ui/Header.tsx
+index 4315628..fedb83f 100644
+--- a/src/ui/Header.tsx
++++ b/src/ui/Header.tsx
+@@ -8,6 +8,8 @@ interface HeaderProps {
+   onUndo?: () => void;
+   onHint?: () => void;
+   canUndo?: boolean;
++  isPaused?: boolean;
++  onTogglePause?: () => void;
+   /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
+   sessionKey?: number;
+ }
+@@ -19,28 +21,24 @@ const Header: React.FC<HeaderProps> = ({
+   onUndo,
+   onHint,
+   canUndo = false,
++  isPaused = false,
++  onTogglePause,
+   sessionKey = 0,
+ }) => {
+   const [timer, setTimer] = useState<number>(0);
+-  const [isRunning, setIsRunning] = useState<boolean>(true);
+ 
+   useEffect(() => {
+     let interval: number;
+-    if (isRunning) {
++    if (!isPaused && completed < 8) {
+       interval = setInterval(() => {
+         setTimer((prev) => prev + 1);
+       }, 1000);
+     }
+     return () => clearInterval(interval);
+-  }, [isRunning]);
+-
+-  useEffect(() => {
+-    if (completed === 8) setIsRunning(false);
+-  }, [completed]);
++  }, [isPaused, completed]);
+ 
+   useEffect(() => {
+     setTimer(0);
+-    setIsRunning(true);
+   }, [sessionKey]);
+ 
+   const formatTime = (seconds: number): string => {
+@@ -55,31 +53,30 @@ const Header: React.FC<HeaderProps> = ({
+     return `${minutes}:${secs.toString().padStart(2, "0")}`;
+   };
+ 
+-  const handleNewGame = (): void => {
+-    setTimer(0);
+-    setIsRunning(true);
+-    onNewGame();
+-  };
+-
+   const isGameCompleted = completed === 8;
+ 
+   return (
+     <div className={styles.header}>
+       <div className={styles.leftSection}>
+-        <button type="button" className={styles.btn} onClick={handleNewGame}>
++        <button type="button" className={styles.btn} onClick={onNewGame}>
+           🎮 New Game
+         </button>
+         <button
+           type="button"
+           className={`${styles.btn} ${styles.undoBtn} ${
+-            !canUndo ? styles.disabled : ""
++            !canUndo || isPaused ? styles.disabled : ""
+           }`}
+           onClick={() => onUndo?.()}
+-          disabled={!canUndo}
++          disabled={!canUndo || isPaused}
+         >
+           ↩️ Undo
+         </button>
+-        <button type="button" className={styles.btn} onClick={() => onHint?.()}>
++        <button
++          type="button"
++          className={`${styles.btn} ${isPaused ? styles.disabled : ""}`}
++          onClick={() => onHint?.()}
++          disabled={isPaused}
++        >
+           💡 Hint
+         </button>
+       </div>
+@@ -109,14 +106,19 @@ const Header: React.FC<HeaderProps> = ({
+         <button
+           type="button"
+           className={`${styles.btn} ${styles.iconBtn}`}
+-          onClick={() => setIsRunning(!isRunning)}
+-          title={isRunning ? "Pause Timer" : "Resume Timer"}
++          onClick={onTogglePause}
++          title={isPaused ? "Resume Game" : "Pause Game"}
+         >
+-          {isRunning ? "⏸️" : "▶️"}
++          {isPaused ? "▶️" : "⏸️"}
+         </button>
++        {isPaused && (
++          <div className={styles.pauseOverlay}>
++            <span className={styles.pauseLabel}>PAUSED</span>
++          </div>
++        )}
+       </div>
+     </div>
+   );
+ };
+ 
+-export default Header;
++export default Header;
+\ No newline at end of file
+diff --git a/src/ui/StockCards.tsx b/src/ui/StockCards.tsx
+index e1a6645..5fbf401 100644
+--- a/src/ui/StockCards.tsx
++++ b/src/ui/StockCards.tsx
+@@ -7,6 +7,7 @@ interface StockCardsProps {
+   game: GameState;
+   setGame: React.Dispatch<React.SetStateAction<GameState>>;
+   deck: Card[];
++  isPaused: boolean;
+ }
+ 
+ const StockCards: React.FC<StockCardsProps> = ({
+@@ -14,6 +15,7 @@ const StockCards: React.FC<StockCardsProps> = ({
+   game,
+   setGame,
+   deck,
++  isPaused,
+ }) => {
+   const [isShown, setIsShown] = useState<boolean>(true);
+ 
+@@ -23,6 +25,7 @@ const StockCards: React.FC<StockCardsProps> = ({
+ 
+   const handleCardSplit = (): void => {
+     if (!deck || deck.length === 0) return;
++    if (isPaused) return;
+ 
+     const tempDecks = game.decks.map((col) => [...col]);
+ 
+@@ -67,11 +70,11 @@ const StockCards: React.FC<StockCardsProps> = ({
+               handleCardSplit();
+             }
+           }}
+-          style={{ cursor: "pointer" }}
++          style={{ cursor: isPaused ? "default" : "pointer" }}
+         />
+       )}
+     </>
+   );
+ };
+ 
+-export default StockCards;
++export default StockCards;
+\ No newline at end of file
+diff --git a/src/utils/toaster.ts b/src/utils/toaster.ts
+index 2299732..7a9dabd 100644
+--- a/src/utils/toaster.ts
++++ b/src/utils/toaster.ts
+@@ -60,3 +60,36 @@ export const showWonPopup = (restart: () => void): void => {
+     }
+   });
+ };
++
++export const showConfirmNewGame = (onConfirm: () => void): void => {
++  Swal.fire({
++    title: "Game Paused",
++    html: `
++			<div style="text-align: center;">
++				<p style="color: #666; font-size: 16px; margin-bottom: 10px;">
++					The game is currently paused.
++				</p>
++				<p style="color: #666; font-size: 16px;">
++					Starting a new game will discard your current progress. Continue?
++				</p>
++			</div>
++		`,
++    icon: "warning",
++    showCancelButton: true,
++    confirmButtonText: "Start New Game",
++    cancelButtonText: "Cancel",
++    confirmButtonColor: "#dc3545",
++    cancelButtonColor: "#6c757d",
++    showCloseButton: true,
++    allowOutsideClick: false,
++    customClass: {
++      popup: "swal2-custom-popup",
++      title: "swal2-custom-title",
++      htmlContainer: "swal2-custom-html",
++    },
++  }).then((result) => {
++    if (result.isConfirmed) {
++      onConfirm();
++    }
++  });
++};
+diff --git a/tests/test/integration.test.tsx b/tests/test/integration.test.tsx
+index 7d02beb..7390581 100644
+--- a/tests/test/integration.test.tsx
++++ b/tests/test/integration.test.tsx
+@@ -34,6 +34,8 @@ vi.mock("../../src/styles/Header.module.css", () => ({
+     statValue: "stat-value-class",
+     completed: "completed-class",
+     iconBtn: "icon-btn-class",
++    pauseOverlay: "pause-overlay-class",
++    pauseLabel: "pause-label-class",
+   },
+ }));
+ 
+diff --git a/tests/ui/Card.test.tsx b/tests/ui/Card.test.tsx
+index 96d544e..5071bc2 100644
+--- a/tests/ui/Card.test.tsx
++++ b/tests/ui/Card.test.tsx
+@@ -32,8 +32,11 @@ const renderCard = (props: {
+   index: number;
+   game: GameState;
+   deckIndex: number;
++  isPaused?: boolean;
+ }) => {
+-  return render(<Card {...props} setGame={mockSetGame} />);
++  return render(
++    <Card {...props} setGame={mockSetGame} isPaused={props.isPaused ?? false} />,
++  );
+ };
+ 
+ describe("Card Component", () => {
+@@ -151,6 +154,18 @@ describe("Card Component", () => {
+       });
+       expect(container.firstChild).toHaveAttribute("draggable", "true");
+     });
++
++    it("should not be draggable when game is paused", () => {
++      const game = createMockGameState();
++      const { container } = renderCard({
++        data: { rank: "K", isDown: false },
++        index: 0,
++        game,
++        deckIndex: 0,
++        isPaused: true,
++      });
++      expect(container.firstChild).toHaveAttribute("draggable", "false");
++    });
+   });
+ 
+   describe("Edge Cases", () => {
+diff --git a/tests/ui/Header.test.tsx b/tests/ui/Header.test.tsx
+index 22132a9..dab3738 100644
+--- a/tests/ui/Header.test.tsx
++++ b/tests/ui/Header.test.tsx
+@@ -18,12 +18,15 @@ vi.mock("../../src/styles/Header.module.css", () => ({
+     statValue: "stat-value-class",
+     completed: "completed-class",
+     iconBtn: "icon-btn-class",
++    pauseOverlay: "pause-overlay-class",
++    pauseLabel: "pause-label-class",
+   },
+ }));
+ 
+ const mockOnNewGame = vi.fn();
+ const mockOnUndo = vi.fn();
+ const mockOnHint = vi.fn();
++const mockOnTogglePause = vi.fn();
+ 
+ const renderHeader = (props = {}) => {
+   const defaultProps = {
+@@ -33,6 +36,8 @@ const renderHeader = (props = {}) => {
+     onUndo: mockOnUndo,
+     onHint: mockOnHint,
+     canUndo: false,
++    isPaused: false,
++    onTogglePause: mockOnTogglePause,
+     ...props,
+   };
+ 
+@@ -106,103 +111,75 @@ describe("Header Component", () => {
+     it("should format time correctly for different durations", () => {
+       renderHeader();
+ 
+-      // Test 1 minute
+       act(() => {
+         vi.advanceTimersByTime(60000);
+       });
+       expect(screen.getByText("1:00")).toBeInTheDocument();
+ 
+-      // Test 1 hour
+       act(() => {
+         vi.advanceTimersByTime(3600000);
+       });
+       expect(screen.getByText("1:01:00")).toBeInTheDocument();
+     });
+ 
+-    it("should pause timer when pause button is clicked", () => {
+-      renderHeader();
+-
+-      const pauseButton = screen.getByText("⏸️");
+-      fireEvent.click(pauseButton);
+-
+-      // Timer should show play button
+-      expect(screen.getByText("▶️")).toBeInTheDocument();
++    it("should pause timer when isPaused prop is set to true", () => {
++      const { rerender } = render(
++        <Header
++          completed={0}
++          moveCount={0}
++          onNewGame={mockOnNewGame}
++          isPaused={false}
++        />,
++      );
+ 
+-      // Timer should not advance
+       act(() => {
+-        vi.advanceTimersByTime(1000);
++        vi.advanceTimersByTime(3000);
+       });
+-      expect(screen.getByText("0:00")).toBeInTheDocument();
+-    });
+-
+-    it("should resume timer when play button is clicked", () => {
+-      renderHeader();
+-
+-      const pauseButton = screen.getByText("⏸️");
+-      fireEvent.click(pauseButton);
+-
+-      const playButton = screen.getByText("▶️");
+-      fireEvent.click(playButton);
+-
+-      // Timer should show pause button
+-      expect(screen.getByText("⏸️")).toBeInTheDocument();
++      expect(screen.getByText("0:03")).toBeInTheDocument();
+ 
+-      // Timer should advance
+-      act(() => {
+-        vi.advanceTimersByTime(1000);
+-      });
+-      expect(screen.getByText("0:01")).toBeInTheDocument();
+-    });
+-
+-    it("should reset timer when new game is started", () => {
+-      renderHeader();
++      rerender(
++        <Header
++          completed={0}
++          moveCount={0}
++          onNewGame={mockOnNewGame}
++          isPaused={true}
++        />,
++      );
+ 
+-      // Advance timer
+       act(() => {
+         vi.advanceTimersByTime(5000);
+       });
+-      expect(screen.getByText("0:05")).toBeInTheDocument();
+-
+-      // Start new game
+-      const newGameButton = screen.getByText("🎮 New Game");
+-      fireEvent.click(newGameButton);
+-
+-      // Timer should reset
+-      expect(screen.getByText("0:00")).toBeInTheDocument();
++      expect(screen.getByText("0:03")).toBeInTheDocument();
+     });
+ 
+-    it("should pause timer when game is completed", () => {
++    it("should resume timer when isPaused prop is set back to false", () => {
+       const { rerender } = render(
+         <Header
+           completed={0}
+           moveCount={0}
+           onNewGame={mockOnNewGame}
+-          onUndo={mockOnUndo}
+-          onHint={mockOnHint}
+-          canUndo={false}
++          isPaused={true}
+         />,
+       );
+ 
+       act(() => {
+-        vi.advanceTimersByTime(4000);
++        vi.advanceTimersByTime(5000);
+       });
+-      expect(screen.getByText("0:04")).toBeInTheDocument();
++      expect(screen.getByText("0:00")).toBeInTheDocument();
+ 
+       rerender(
+         <Header
+-          completed={8}
++          completed={0}
+           moveCount={0}
+           onNewGame={mockOnNewGame}
+-          onUndo={mockOnUndo}
+-          onHint={mockOnHint}
+-          canUndo={false}
++          isPaused={false}
+         />,
+       );
+ 
+       act(() => {
+-        vi.advanceTimersByTime(10000);
++        vi.advanceTimersByTime(3000);
+       });
+-      expect(screen.getByText("0:04")).toBeInTheDocument();
++      expect(screen.getByText("0:03")).toBeInTheDocument();
+     });
+ 
+     it("should reset timer when sessionKey changes", () => {
+@@ -231,6 +208,34 @@ describe("Header Component", () => {
+ 
+       expect(screen.getByText("0:00")).toBeInTheDocument();
+     });
++
++    it("should pause timer when game is completed", () => {
++      const { rerender } = render(
++        <Header
++          completed={0}
++          moveCount={0}
++          onNewGame={mockOnNewGame}
++        />,
++      );
++
++      act(() => {
++        vi.advanceTimersByTime(4000);
++      });
++      expect(screen.getByText("0:04")).toBeInTheDocument();
++
++      rerender(
++        <Header
++          completed={8}
++          moveCount={0}
++          onNewGame={mockOnNewGame}
++        />,
++      );
++
++      act(() => {
++        vi.advanceTimersByTime(10000);
++      });
++      expect(screen.getByText("0:04")).toBeInTheDocument();
++    });
+   });
+ 
+   describe("Button Interactions", () => {
+@@ -270,40 +275,68 @@ describe("Header Component", () => {
+       expect(mockOnHint).toHaveBeenCalledTimes(1);
+     });
+ 
+-    it("should toggle timer pause/resume when pause button is clicked", () => {
++    it("should call onTogglePause when pause button is clicked", () => {
+       renderHeader();
+ 
+       const pauseButton = screen.getByText("⏸️");
++      fireEvent.click(pauseButton);
+ 
+-      // Initial state should be pause button
+-      expect(pauseButton).toBeInTheDocument();
++      expect(mockOnTogglePause).toHaveBeenCalledTimes(1);
++    });
++  });
++
++  describe("Pause State Behavior", () => {
++    it("should show play button and PAUSED label when paused", () => {
++      renderHeader({ isPaused: true });
+ 
+-      // Click to pause
+-      fireEvent.click(pauseButton);
+       expect(screen.getByText("▶️")).toBeInTheDocument();
++      expect(screen.getByText("PAUSED")).toBeInTheDocument();
++    });
++
++    it("should show pause button when not paused", () => {
++      renderHeader({ isPaused: false });
+ 
+-      // Click to resume
+-      fireEvent.click(screen.getByText("▶️"));
+       expect(screen.getByText("⏸️")).toBeInTheDocument();
++      expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
++    });
++
++    it("should disable undo button when paused", () => {
++      renderHeader({ canUndo: true, isPaused: true });
++
++      const undoButton = screen.getByText("↩️ Undo");
++      expect(undoButton).toBeDisabled();
++    });
++
++    it("should disable hint button when paused", () => {
++      renderHeader({ isPaused: true });
++
++      const hintButton = screen.getByText("💡 Hint");
++      expect(hintButton).toBeDisabled();
++    });
++
++    it("should not call onHint when hint is clicked during pause", () => {
++      renderHeader({ isPaused: true });
++
++      const hintButton = screen.getByText("💡 Hint");
++      fireEvent.click(hintButton);
++
++      expect(mockOnHint).not.toHaveBeenCalled();
+     });
+   });
+ 
+   describe("Accessibility", () => {
+     it("should have proper title attribute for pause button", () => {
+-      renderHeader();
++      renderHeader({ isPaused: false });
+ 
+       const pauseButton = screen.getByText("⏸️");
+-      expect(pauseButton).toHaveAttribute("title", "Pause Timer");
++      expect(pauseButton).toHaveAttribute("title", "Pause Game");
+     });
+ 
+     it("should have proper title attribute for play button", () => {
+-      renderHeader();
+-
+-      const pauseButton = screen.getByText("⏸️");
+-      fireEvent.click(pauseButton);
++      renderHeader({ isPaused: true });
+ 
+       const playButton = screen.getByText("▶️");
+-      expect(playButton).toHaveAttribute("title", "Resume Timer");
++      expect(playButton).toHaveAttribute("title", "Resume Game");
+     });
+ 
+     it("should have proper disabled state for undo button", () => {
+@@ -316,16 +349,21 @@ describe("Header Component", () => {
+ 
+   describe("Edge Cases", () => {
+     it("should handle undefined callback props gracefully", () => {
+-      render(<Header completed={0} moveCount={0} onNewGame={mockOnNewGame} />);
++      render(
++        <Header
++          completed={0}
++          moveCount={0}
++          onNewGame={mockOnNewGame}
++          isPaused={false}
++        />,
++      );
+ 
+-      // Should not throw errors when optional callbacks are undefined
+       const undoButton = screen.getByText("↩️ Undo");
+       const hintButton = screen.getByText("💡 Hint");
+ 
+       fireEvent.click(undoButton);
+       fireEvent.click(hintButton);
+ 
+-      // Should not crash
+       expect(screen.getByText("↩️ Undo")).toBeInTheDocument();
+     });
+ 
+@@ -344,12 +382,11 @@ describe("Header Component", () => {
+     it("should handle very long timer durations", () => {
+       renderHeader();
+ 
+-      // Advance to 2 hours and 30 minutes
+       act(() => {
+-        vi.advanceTimersByTime(9000000); // 2.5 hours in milliseconds
++        vi.advanceTimersByTime(9000000);
+       });
+ 
+       expect(screen.getByText("2:30:00")).toBeInTheDocument();
+     });
+   });
+-});
++});
+\ No newline at end of file

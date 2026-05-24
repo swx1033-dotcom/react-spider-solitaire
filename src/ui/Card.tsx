@@ -14,6 +14,7 @@ interface CardProps {
   game: GameState;
   setGame: React.Dispatch<React.SetStateAction<GameState>>;
   deckIndex: number;
+  isPaused: boolean;
 }
 
 const Card: React.FC<CardProps> = ({
@@ -22,6 +23,7 @@ const Card: React.FC<CardProps> = ({
   game,
   setGame,
   deckIndex,
+  isPaused,
 }) => {
   if (!data || !data.rank) return null;
 
@@ -34,6 +36,7 @@ const Card: React.FC<CardProps> = ({
 
   const dragStart = (event: React.DragEvent<HTMLDivElement>): void => {
     if (!canDrag) return;
+    if (isPaused) return;
 
     const currentCard = event.currentTarget;
     const currentCardIndex = parseInt(
@@ -72,6 +75,7 @@ const Card: React.FC<CardProps> = ({
   };
 
   const drag = (event: React.DragEvent<HTMLDivElement>): void => {
+    if (isPaused) return;
     const diffX = event.pageX - mouseX;
     const diffY = event.pageY - mouseY;
     selectedCards.forEach((card, index) => {
@@ -83,21 +87,30 @@ const Card: React.FC<CardProps> = ({
 
   const dragEnd = (event: React.DragEvent<HTMLDivElement>): void => {
     if (!selectedCards.length) return;
+
     selectedCards.forEach((card) => {
       card.style.visibility = "hidden";
     });
+
     const xEndPoint = event.pageX;
     const yEndPoint = event.pageY;
     const dropTarget = document.elementFromPoint(
       xEndPoint,
       yEndPoint,
     ) as HTMLElement;
+
     selectedCards.forEach((card, index) => {
       card.style.visibility = "visible";
       card.classList.remove(styles.dragging);
       const originalTop = index * 30;
       card.style.transform = `translate(0px,${originalTop}px)`;
     });
+
+    if (isPaused) {
+      selectedCards = [];
+      return;
+    }
+
     if (!dropTarget) {
       selectedCards = [];
       return;
@@ -203,7 +216,7 @@ const Card: React.FC<CardProps> = ({
 
   return (
     <div
-      draggable={canDrag}
+      draggable={canDrag && !isPaused}
       data-rank={getRank(data.rank).toString()}
       data-original-rank={data.rank}
       onDragStart={dragStart}

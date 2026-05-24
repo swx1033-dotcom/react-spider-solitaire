@@ -8,6 +8,8 @@ interface HeaderProps {
   onUndo?: () => void;
   onHint?: () => void;
   canUndo?: boolean;
+  isPaused?: boolean;
+  onTogglePause?: () => void;
   /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
   sessionKey?: number;
 }
@@ -19,28 +21,24 @@ const Header: React.FC<HeaderProps> = ({
   onUndo,
   onHint,
   canUndo = false,
+  isPaused = false,
+  onTogglePause,
   sessionKey = 0,
 }) => {
   const [timer, setTimer] = useState<number>(0);
-  const [isRunning, setIsRunning] = useState<boolean>(true);
 
   useEffect(() => {
     let interval: number;
-    if (isRunning) {
+    if (!isPaused && completed < 8) {
       interval = setInterval(() => {
         setTimer((prev) => prev + 1);
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [isRunning]);
-
-  useEffect(() => {
-    if (completed === 8) setIsRunning(false);
-  }, [completed]);
+  }, [isPaused, completed]);
 
   useEffect(() => {
     setTimer(0);
-    setIsRunning(true);
   }, [sessionKey]);
 
   const formatTime = (seconds: number): string => {
@@ -55,31 +53,30 @@ const Header: React.FC<HeaderProps> = ({
     return `${minutes}:${secs.toString().padStart(2, "0")}`;
   };
 
-  const handleNewGame = (): void => {
-    setTimer(0);
-    setIsRunning(true);
-    onNewGame();
-  };
-
   const isGameCompleted = completed === 8;
 
   return (
     <div className={styles.header}>
       <div className={styles.leftSection}>
-        <button type="button" className={styles.btn} onClick={handleNewGame}>
+        <button type="button" className={styles.btn} onClick={onNewGame}>
           🎮 New Game
         </button>
         <button
           type="button"
           className={`${styles.btn} ${styles.undoBtn} ${
-            !canUndo ? styles.disabled : ""
+            !canUndo || isPaused ? styles.disabled : ""
           }`}
           onClick={() => onUndo?.()}
-          disabled={!canUndo}
+          disabled={!canUndo || isPaused}
         >
           ↩️ Undo
         </button>
-        <button type="button" className={styles.btn} onClick={() => onHint?.()}>
+        <button
+          type="button"
+          className={`${styles.btn} ${isPaused ? styles.disabled : ""}`}
+          onClick={() => onHint?.()}
+          disabled={isPaused}
+        >
           💡 Hint
         </button>
       </div>
@@ -109,11 +106,16 @@ const Header: React.FC<HeaderProps> = ({
         <button
           type="button"
           className={`${styles.btn} ${styles.iconBtn}`}
-          onClick={() => setIsRunning(!isRunning)}
-          title={isRunning ? "Pause Timer" : "Resume Timer"}
+          onClick={onTogglePause}
+          title={isPaused ? "Resume Game" : "Pause Game"}
         >
-          {isRunning ? "⏸️" : "▶️"}
+          {isPaused ? "▶️" : "⏸️"}
         </button>
+        {isPaused && (
+          <div className={styles.pauseOverlay}>
+            <span className={styles.pauseLabel}>PAUSED</span>
+          </div>
+        )}
       </div>
     </div>
   );

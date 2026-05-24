@@ -18,12 +18,15 @@ vi.mock("../../src/styles/Header.module.css", () => ({
     statValue: "stat-value-class",
     completed: "completed-class",
     iconBtn: "icon-btn-class",
+    pauseOverlay: "pause-overlay-class",
+    pauseLabel: "pause-label-class",
   },
 }));
 
 const mockOnNewGame = vi.fn();
 const mockOnUndo = vi.fn();
 const mockOnHint = vi.fn();
+const mockOnTogglePause = vi.fn();
 
 const renderHeader = (props = {}) => {
   const defaultProps = {
@@ -33,6 +36,8 @@ const renderHeader = (props = {}) => {
     onUndo: mockOnUndo,
     onHint: mockOnHint,
     canUndo: false,
+    isPaused: false,
+    onTogglePause: mockOnTogglePause,
     ...props,
   };
 
@@ -106,103 +111,75 @@ describe("Header Component", () => {
     it("should format time correctly for different durations", () => {
       renderHeader();
 
-      // Test 1 minute
       act(() => {
         vi.advanceTimersByTime(60000);
       });
       expect(screen.getByText("1:00")).toBeInTheDocument();
 
-      // Test 1 hour
       act(() => {
         vi.advanceTimersByTime(3600000);
       });
       expect(screen.getByText("1:01:00")).toBeInTheDocument();
     });
 
-    it("should pause timer when pause button is clicked", () => {
-      renderHeader();
-
-      const pauseButton = screen.getByText("⏸️");
-      fireEvent.click(pauseButton);
-
-      // Timer should show play button
-      expect(screen.getByText("▶️")).toBeInTheDocument();
-
-      // Timer should not advance
-      act(() => {
-        vi.advanceTimersByTime(1000);
-      });
-      expect(screen.getByText("0:00")).toBeInTheDocument();
-    });
-
-    it("should resume timer when play button is clicked", () => {
-      renderHeader();
-
-      const pauseButton = screen.getByText("⏸️");
-      fireEvent.click(pauseButton);
-
-      const playButton = screen.getByText("▶️");
-      fireEvent.click(playButton);
-
-      // Timer should show pause button
-      expect(screen.getByText("⏸️")).toBeInTheDocument();
-
-      // Timer should advance
-      act(() => {
-        vi.advanceTimersByTime(1000);
-      });
-      expect(screen.getByText("0:01")).toBeInTheDocument();
-    });
-
-    it("should reset timer when new game is started", () => {
-      renderHeader();
-
-      // Advance timer
-      act(() => {
-        vi.advanceTimersByTime(5000);
-      });
-      expect(screen.getByText("0:05")).toBeInTheDocument();
-
-      // Start new game
-      const newGameButton = screen.getByText("🎮 New Game");
-      fireEvent.click(newGameButton);
-
-      // Timer should reset
-      expect(screen.getByText("0:00")).toBeInTheDocument();
-    });
-
-    it("should pause timer when game is completed", () => {
+    it("should pause timer when isPaused prop is set to true", () => {
       const { rerender } = render(
         <Header
           completed={0}
           moveCount={0}
           onNewGame={mockOnNewGame}
-          onUndo={mockOnUndo}
-          onHint={mockOnHint}
-          canUndo={false}
+          isPaused={false}
         />,
       );
 
       act(() => {
-        vi.advanceTimersByTime(4000);
+        vi.advanceTimersByTime(3000);
       });
-      expect(screen.getByText("0:04")).toBeInTheDocument();
+      expect(screen.getByText("0:03")).toBeInTheDocument();
 
       rerender(
         <Header
-          completed={8}
+          completed={0}
           moveCount={0}
           onNewGame={mockOnNewGame}
-          onUndo={mockOnUndo}
-          onHint={mockOnHint}
-          canUndo={false}
+          isPaused={true}
         />,
       );
 
       act(() => {
-        vi.advanceTimersByTime(10000);
+        vi.advanceTimersByTime(5000);
       });
-      expect(screen.getByText("0:04")).toBeInTheDocument();
+      expect(screen.getByText("0:03")).toBeInTheDocument();
+    });
+
+    it("should resume timer when isPaused prop is set back to false", () => {
+      const { rerender } = render(
+        <Header
+          completed={0}
+          moveCount={0}
+          onNewGame={mockOnNewGame}
+          isPaused={true}
+        />,
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(5000);
+      });
+      expect(screen.getByText("0:00")).toBeInTheDocument();
+
+      rerender(
+        <Header
+          completed={0}
+          moveCount={0}
+          onNewGame={mockOnNewGame}
+          isPaused={false}
+        />,
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
+      expect(screen.getByText("0:03")).toBeInTheDocument();
     });
 
     it("should reset timer when sessionKey changes", () => {
@@ -230,6 +207,34 @@ describe("Header Component", () => {
       );
 
       expect(screen.getByText("0:00")).toBeInTheDocument();
+    });
+
+    it("should pause timer when game is completed", () => {
+      const { rerender } = render(
+        <Header
+          completed={0}
+          moveCount={0}
+          onNewGame={mockOnNewGame}
+        />,
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(4000);
+      });
+      expect(screen.getByText("0:04")).toBeInTheDocument();
+
+      rerender(
+        <Header
+          completed={8}
+          moveCount={0}
+          onNewGame={mockOnNewGame}
+        />,
+      );
+
+      act(() => {
+        vi.advanceTimersByTime(10000);
+      });
+      expect(screen.getByText("0:04")).toBeInTheDocument();
     });
   });
 
@@ -270,40 +275,68 @@ describe("Header Component", () => {
       expect(mockOnHint).toHaveBeenCalledTimes(1);
     });
 
-    it("should toggle timer pause/resume when pause button is clicked", () => {
+    it("should call onTogglePause when pause button is clicked", () => {
       renderHeader();
 
       const pauseButton = screen.getByText("⏸️");
-
-      // Initial state should be pause button
-      expect(pauseButton).toBeInTheDocument();
-
-      // Click to pause
       fireEvent.click(pauseButton);
-      expect(screen.getByText("▶️")).toBeInTheDocument();
 
-      // Click to resume
-      fireEvent.click(screen.getByText("▶️"));
+      expect(mockOnTogglePause).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("Pause State Behavior", () => {
+    it("should show play button and PAUSED label when paused", () => {
+      renderHeader({ isPaused: true });
+
+      expect(screen.getByText("▶️")).toBeInTheDocument();
+      expect(screen.getByText("PAUSED")).toBeInTheDocument();
+    });
+
+    it("should show pause button when not paused", () => {
+      renderHeader({ isPaused: false });
+
       expect(screen.getByText("⏸️")).toBeInTheDocument();
+      expect(screen.queryByText("PAUSED")).not.toBeInTheDocument();
+    });
+
+    it("should disable undo button when paused", () => {
+      renderHeader({ canUndo: true, isPaused: true });
+
+      const undoButton = screen.getByText("↩️ Undo");
+      expect(undoButton).toBeDisabled();
+    });
+
+    it("should disable hint button when paused", () => {
+      renderHeader({ isPaused: true });
+
+      const hintButton = screen.getByText("💡 Hint");
+      expect(hintButton).toBeDisabled();
+    });
+
+    it("should not call onHint when hint is clicked during pause", () => {
+      renderHeader({ isPaused: true });
+
+      const hintButton = screen.getByText("💡 Hint");
+      fireEvent.click(hintButton);
+
+      expect(mockOnHint).not.toHaveBeenCalled();
     });
   });
 
   describe("Accessibility", () => {
     it("should have proper title attribute for pause button", () => {
-      renderHeader();
+      renderHeader({ isPaused: false });
 
       const pauseButton = screen.getByText("⏸️");
-      expect(pauseButton).toHaveAttribute("title", "Pause Timer");
+      expect(pauseButton).toHaveAttribute("title", "Pause Game");
     });
 
     it("should have proper title attribute for play button", () => {
-      renderHeader();
-
-      const pauseButton = screen.getByText("⏸️");
-      fireEvent.click(pauseButton);
+      renderHeader({ isPaused: true });
 
       const playButton = screen.getByText("▶️");
-      expect(playButton).toHaveAttribute("title", "Resume Timer");
+      expect(playButton).toHaveAttribute("title", "Resume Game");
     });
 
     it("should have proper disabled state for undo button", () => {
@@ -316,16 +349,21 @@ describe("Header Component", () => {
 
   describe("Edge Cases", () => {
     it("should handle undefined callback props gracefully", () => {
-      render(<Header completed={0} moveCount={0} onNewGame={mockOnNewGame} />);
+      render(
+        <Header
+          completed={0}
+          moveCount={0}
+          onNewGame={mockOnNewGame}
+          isPaused={false}
+        />,
+      );
 
-      // Should not throw errors when optional callbacks are undefined
       const undoButton = screen.getByText("↩️ Undo");
       const hintButton = screen.getByText("💡 Hint");
 
       fireEvent.click(undoButton);
       fireEvent.click(hintButton);
 
-      // Should not crash
       expect(screen.getByText("↩️ Undo")).toBeInTheDocument();
     });
 
@@ -344,9 +382,8 @@ describe("Header Component", () => {
     it("should handle very long timer durations", () => {
       renderHeader();
 
-      // Advance to 2 hours and 30 minutes
       act(() => {
-        vi.advanceTimersByTime(9000000); // 2.5 hours in milliseconds
+        vi.advanceTimersByTime(9000000);
       });
 
       expect(screen.getByText("2:30:00")).toBeInTheDocument();

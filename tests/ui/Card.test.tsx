@@ -32,8 +32,11 @@ const renderCard = (props: {
   index: number;
   game: GameState;
   deckIndex: number;
+  isPaused?: boolean;
 }) => {
-  return render(<Card {...props} setGame={mockSetGame} />);
+  return render(
+    <Card {...props} setGame={mockSetGame} isPaused={props.isPaused ?? false} />,
+  );
 };
 
 describe("Card Component", () => {
@@ -150,6 +153,18 @@ describe("Card Component", () => {
         deckIndex: 0,
       });
       expect(container.firstChild).toHaveAttribute("draggable", "true");
+    });
+
+    it("should not be draggable when game is paused", () => {
+      const game = createMockGameState();
+      const { container } = renderCard({
+        data: { rank: "K", isDown: false },
+        index: 0,
+        game,
+        deckIndex: 0,
+        isPaused: true,
+      });
+      expect(container.firstChild).toHaveAttribute("draggable", "false");
     });
   });
 

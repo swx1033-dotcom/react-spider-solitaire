@@ -5,7 +5,7 @@ import styles from "../styles/CardBoard.module.css";
 import Header from "./Header";
 import CardBoardBottom from "./CardBoardBottom";
 import { GameState } from "../types/game";
-import { showInfo, showWonPopup } from "../utils/toaster";
+import { showInfo, showWonPopup, showConfirmNewGame } from "../utils/toaster";
 
 const cloneGameState = (g: GameState): GameState => ({
   completed: g.completed,
@@ -22,6 +22,7 @@ const CardBoard: React.FC = () => {
   const [, setGameHistory] = useState<GameState[]>([]);
   const [canUndo, setCanUndo] = useState<boolean>(false);
   const [gameKey, setGameKey] = useState<number>(0);
+  const [isPaused, setIsPaused] = useState<boolean>(false);
   const winPopupScheduledRef = useRef(false);
 
   useEffect(() => {
@@ -54,10 +55,26 @@ const CardBoard: React.FC = () => {
     setGame(newGameState);
     setGameHistory([]);
     setCanUndo(false);
+    setIsPaused(false);
     setGameKey((prev) => prev + 1);
   };
 
+  const handleTogglePause = (): void => {
+    setIsPaused((prev) => !prev);
+  };
+
+  const handleNewGameRequest = (): void => {
+    if (isPaused) {
+      showConfirmNewGame(() => {
+        startNewGame();
+      });
+    } else {
+      startNewGame();
+    }
+  };
+
   const handleUndo = (): void => {
+    if (isPaused) return;
     setGameHistory((prev) => {
       if (prev.length === 0) return prev;
       const previousState = prev[prev.length - 1];
@@ -68,12 +85,14 @@ const CardBoard: React.FC = () => {
   };
 
   const handleHint = (): void => {
+    if (isPaused) return;
     showInfo(findGameHint(game.decks).text);
   };
 
   const updateGameWithHistory = (
     next: React.SetStateAction<GameState>,
   ): void => {
+    if (isPaused) return;
     setGame((prev) => {
       const resolved = typeof next === "function" ? next(prev) : next;
       setGameHistory((h) => [...h, cloneGameState(prev)]);
@@ -87,10 +106,12 @@ const CardBoard: React.FC = () => {
       <Header
         completed={game.completed}
         moveCount={game.moveCount}
-        onNewGame={startNewGame}
+        onNewGame={handleNewGameRequest}
         onUndo={handleUndo}
         onHint={handleHint}
         canUndo={canUndo}
+        isPaused={isPaused}
+        onTogglePause={handleTogglePause}
         sessionKey={gameKey}
       />
       <div className={styles.board}>
@@ -100,6 +121,7 @@ const CardBoard: React.FC = () => {
             game={game}
             deckIndex={index}
             setGame={updateGameWithHistory}
+            isPaused={isPaused}
             key={`pile${index}`}
           />
         ))}
@@ -108,6 +130,7 @@ const CardBoard: React.FC = () => {
         game={game}
         setGame={updateGameWithHistory}
         stockDecks={game.decks.slice(10)}
+        isPaused={isPaused}
       />
     </div>
   );
