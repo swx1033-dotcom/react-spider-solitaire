@@ -1,0 +1,266 @@
+diff --git a/src/styles/Card.module.css b/src/styles/Card.module.css
+index 3764dfd..707163e 100644
+--- a/src/styles/Card.module.css
++++ b/src/styles/Card.module.css
+@@ -154,3 +154,17 @@
+ .card[data-index="20"] {
+   top: 600px;
+ }
++
++.card[data-highlighted="true"] {
++  box-shadow: 0 0 20px 8px rgba(255, 215, 0, 0.8), 0 0 40px 16px rgba(255, 215, 0, 0.4);
++  animation: highlightPulse 1s infinite ease-in-out;
++}
++
++@keyframes highlightPulse {
++  0%, 100% {
++    box-shadow: 0 0 20px 8px rgba(255, 215, 0, 0.8), 0 0 40px 16px rgba(255, 215, 0, 0.4);
++  }
++  50% {
++    box-shadow: 0 0 30px 12px rgba(255, 215, 0, 1), 0 0 60px 24px rgba(255, 215, 0, 0.6);
++  }
++}
+diff --git a/src/styles/Header.module.css b/src/styles/Header.module.css
+index 2ec4223..b72a70d 100644
+--- a/src/styles/Header.module.css
++++ b/src/styles/Header.module.css
+@@ -113,6 +113,14 @@
+   background: linear-gradient(145deg, #6a8c4a, #5a7c3a);
+ }
+ 
++.highlightBtn {
++  background: linear-gradient(145deg, #f5b041, #d68910);
++}
++
++.highlightBtn:hover {
++  background: linear-gradient(145deg, #f7dc6f, #f5b041);
++}
++
+ .disabled {
+   opacity: 0.5;
+   cursor: not-allowed;
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..4acf08a 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -1,11 +1,11 @@
+-import React, { useState, useEffect, useRef } from "react";
+-import { initiateGame, findGameHint } from "../utils/game";
++import React, { useState, useEffect, useRef, useCallback } from "react";
++import { initiateGame, findGameHint, findMovableCards, type MovableCard } from "../utils/game";
+ import CardHolder from "./CardHolder";
+ import styles from "../styles/CardBoard.module.css";
+ import Header from "./Header";
+ import CardBoardBottom from "./CardBoardBottom";
+ import { GameState } from "../types/game";
+-import { showInfo, showWonPopup } from "../utils/toaster";
++import { showInfo, showWonPopup, showNoMoves } from "../utils/toaster";
+ 
+ const cloneGameState = (g: GameState): GameState => ({
+   completed: g.completed,
+@@ -23,11 +23,35 @@ const CardBoard: React.FC = () => {
+   const [canUndo, setCanUndo] = useState<boolean>(false);
+   const [gameKey, setGameKey] = useState<number>(0);
+   const winPopupScheduledRef = useRef(false);
++  
++  // 高亮相关的状态和引用
++  const highlightTimeoutRef = useRef<number | null>(null);
++  const previousMoveCountRef = useRef<number>(0);
++  const previousGameKeyRef = useRef<number>(0);
+ 
+   useEffect(() => {
+     startNewGame();
+   }, []);
+ 
++  // 监听游戏移动和新游戏，清除高亮
++  useEffect(() => {
++    if (
++      game.moveCount !== previousMoveCountRef.current ||
++      gameKey !== previousGameKeyRef.current
++    ) {
++      clearHighlights();
++      previousMoveCountRef.current = game.moveCount;
++      previousGameKeyRef.current = gameKey;
++    }
++  }, [game.moveCount, gameKey, clearHighlights]);
++
++  // 组件卸载时清理
++  useEffect(() => {
++    return () => {
++      clearHighlights();
++    };
++  }, [clearHighlights]);
++
+   useEffect(() => {
+     if (game.completed < 8) {
+       winPopupScheduledRef.current = false;
+@@ -71,6 +95,52 @@ const CardBoard: React.FC = () => {
+     showInfo(findGameHint(game.decks).text);
+   };
+ 
++  // 清除高亮的辅助函数
++  const clearHighlights = useCallback((): void => {
++    if (highlightTimeoutRef.current) {
++      window.clearTimeout(highlightTimeoutRef.current);
++      highlightTimeoutRef.current = null;
++    }
++    const allCards = document.querySelectorAll(".card");
++    allCards.forEach((card) => {
++      card.setAttribute("data-highlighted", "false");
++    });
++  }, []);
++
++  // 为指定的卡片添加高亮
++  const applyHighlights = useCallback((movableCards: MovableCard[]): void => {
++    movableCards.forEach(({ deckIndex, cardIndex }) => {
++      const cardElement = document.querySelector(
++        `.card[data-deck-index="${deckIndex}"][data-index="${cardIndex}"]`
++      ) as HTMLElement;
++      if (cardElement) {
++        cardElement.setAttribute("data-highlighted", "true");
++      }
++    });
++  }, []);
++
++  // 处理高亮按钮点击的主要函数
++  const handleHighlight = useCallback((): void => {
++    // 先清除现有的高亮和计时器
++    clearHighlights();
++
++    // 扫描所有可移动牌
++    const movableCards = findMovableCards(game.decks);
++
++    if (movableCards.length === 0) {
++      showNoMoves("No moves available right now.");
++      return;
++    }
++
++    // 应用高亮
++    applyHighlights(movableCards);
++
++    // 设置3秒后自动清除
++    highlightTimeoutRef.current = window.setTimeout(() => {
++      clearHighlights();
++    }, 3000);
++  }, [game.decks, clearHighlights, applyHighlights]);
++
+   const updateGameWithHistory = (
+     next: React.SetStateAction<GameState>,
+   ): void => {
+@@ -90,6 +160,7 @@ const CardBoard: React.FC = () => {
+         onNewGame={startNewGame}
+         onUndo={handleUndo}
+         onHint={handleHint}
++        onHighlight={handleHighlight}
+         canUndo={canUndo}
+         sessionKey={gameKey}
+       />
+diff --git a/src/ui/Header.tsx b/src/ui/Header.tsx
+index 4315628..7ae89ab 100644
+--- a/src/ui/Header.tsx
++++ b/src/ui/Header.tsx
+@@ -7,6 +7,7 @@ interface HeaderProps {
+   onNewGame: () => void;
+   onUndo?: () => void;
+   onHint?: () => void;
++  onHighlight?: () => void;
+   canUndo?: boolean;
+   /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
+   sessionKey?: number;
+@@ -18,6 +19,7 @@ const Header: React.FC<HeaderProps> = ({
+   onNewGame,
+   onUndo,
+   onHint,
++  onHighlight,
+   canUndo = false,
+   sessionKey = 0,
+ }) => {
+@@ -82,6 +84,9 @@ const Header: React.FC<HeaderProps> = ({
+         <button type="button" className={styles.btn} onClick={() => onHint?.()}>
+           💡 Hint
+         </button>
++        <button type="button" className={`${styles.btn} ${styles.highlightBtn}`} onClick={() => onHighlight?.()}>
++          ✨ Highlight
++        </button>
+       </div>
+       <div className={styles.centerSection}>
+         <div className={styles.stats}>
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..c38be89 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -193,3 +193,48 @@ export const findGameHint = (decks: Card[][]): GameHint => {
+     text: "No obvious move — try Undo or a different stack, or start a New Game.",
+   };
+ };
++
++/** 表示一个可移动的牌，包含其所在列和索引 */
++export type MovableCard = {
++  deckIndex: number;
++  cardIndex: number;
++};
++
++/**
++ * 高效扫描整个牌局，找出所有可移动的牌（去重）
++ * 时间复杂度：O(10 * C + 10 * T)，其中 C 是每列平均牌数，T 是目标列数量
++ */
++export const findMovableCards = (decks: Card[][]): MovableCard[] => {
++  const movableSet = new Set<string>();
++  const movableCards: MovableCard[] = [];
++
++  // 预计算所有目标位置的可能目标牌
++  for (let to = 0; to < 10; to++) {
++    const targetCol = decks[to] ?? [];
++    const targetTop =
++      targetCol.length === 0 ? null : targetCol[targetCol.length - 1];
++    if (targetTop?.isDown) continue;
++
++    for (let from = 0; from < 10; from++) {
++      if (from === to) continue;
++      const col = decks[from] ?? [];
++      
++      // 优化：从后往前扫描，只检查可以作为有效起始点的牌
++      for (let start = 0; start < col.length; start++) {
++        if (col[start].isDown) continue;
++        if (!isValidDescendingRun(col, start)) continue;
++        
++        const mover = col[start];
++        if (isValidMove(mover, targetTop)) {
++          const key = `${from}-${start}`;
++          if (!movableSet.has(key)) {
++            movableSet.add(key);
++            movableCards.push({ deckIndex: from, cardIndex: start });
++          }
++        }
++      }
++    }
++  }
++
++  return movableCards;
++};
+diff --git a/src/utils/toaster.ts b/src/utils/toaster.ts
+index 2299732..c069153 100644
+--- a/src/utils/toaster.ts
++++ b/src/utils/toaster.ts
+@@ -12,6 +12,21 @@ export const showError = (message: string = "Invalid Operation!"): void => {
+   });
+ };
+ 
++/** 显示无合法移动的提示，不打断用户操作 */
++export const showNoMoves = (message: string = "No moves available right now."): void => {
++  Swal.fire({
++    icon: "warning",
++    text: message,
++    toast: true,
++    position: "bottom-end",
++    timer: 2000,
++    showConfirmButton: false,
++    timerProgressBar: true,
++    background: "#fff3cd",
++    iconColor: "#ffc107",
++  });
++};
++
+ export const showInfo = (message: string): void => {
+   Swal.fire({
+     icon: "info",

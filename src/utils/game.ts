@@ -193,3 +193,48 @@ export const findGameHint = (decks: Card[][]): GameHint => {
     text: "No obvious move — try Undo or a different stack, or start a New Game.",
   };
 };
+
+/** 表示一个可移动的牌，包含其所在列和索引 */
+export type MovableCard = {
+  deckIndex: number;
+  cardIndex: number;
+};
+
+/**
+ * 高效扫描整个牌局，找出所有可移动的牌（去重）
+ * 时间复杂度：O(10 * C + 10 * T)，其中 C 是每列平均牌数，T 是目标列数量
+ */
+export const findMovableCards = (decks: Card[][]): MovableCard[] => {
+  const movableSet = new Set<string>();
+  const movableCards: MovableCard[] = [];
+
+  // 预计算所有目标位置的可能目标牌
+  for (let to = 0; to < 10; to++) {
+    const targetCol = decks[to] ?? [];
+    const targetTop =
+      targetCol.length === 0 ? null : targetCol[targetCol.length - 1];
+    if (targetTop?.isDown) continue;
+
+    for (let from = 0; from < 10; from++) {
+      if (from === to) continue;
+      const col = decks[from] ?? [];
+      
+      // 优化：从后往前扫描，只检查可以作为有效起始点的牌
+      for (let start = 0; start < col.length; start++) {
+        if (col[start].isDown) continue;
+        if (!isValidDescendingRun(col, start)) continue;
+        
+        const mover = col[start];
+        if (isValidMove(mover, targetTop)) {
+          const key = `${from}-${start}`;
+          if (!movableSet.has(key)) {
+            movableSet.add(key);
+            movableCards.push({ deckIndex: from, cardIndex: start });
+          }
+        }
+      }
+    }
+  }
+
+  return movableCards;
+};

@@ -12,6 +12,21 @@ export const showError = (message: string = "Invalid Operation!"): void => {
   });
 };
 
+/** 显示无合法移动的提示，不打断用户操作 */
+export const showNoMoves = (message: string = "No moves available right now."): void => {
+  Swal.fire({
+    icon: "warning",
+    text: message,
+    toast: true,
+    position: "bottom-end",
+    timer: 2000,
+    showConfirmButton: false,
+    timerProgressBar: true,
+    background: "#fff3cd",
+    iconColor: "#ffc107",
+  });
+};
+
 export const showInfo = (message: string): void => {
   Swal.fire({
     icon: "info",

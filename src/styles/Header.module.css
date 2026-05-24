@@ -113,6 +113,14 @@
   background: linear-gradient(145deg, #6a8c4a, #5a7c3a);
 }
 
+.highlightBtn {
+  background: linear-gradient(145deg, #f5b041, #d68910);
+}
+
+.highlightBtn:hover {
+  background: linear-gradient(145deg, #f7dc6f, #f5b041);
+}
+
 .disabled {
   opacity: 0.5;
   cursor: not-allowed;
