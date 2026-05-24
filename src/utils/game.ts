@@ -145,6 +145,42 @@ export type GameHint = {
   text: string;
 };
 
+export interface CardIdentifier {
+  deckIndex: number;
+  cardIndex: number;
+}
+
+/** 
+ * Scans the board to find all cards that can be the source of a valid move.
+ * Returns an array of card identifiers, deduplicated by the nature of the search.
+ */
+export const getMovableSourceCards = (decks: Card[][]): CardIdentifier[] => {
+  const result: CardIdentifier[] = [];
+  for (let from = 0; from < 10; from++) {
+    const col = decks[from] || [];
+    for (let start = 0; start < col.length; start++) {
+      if (col[start].isDown) continue;
+      if (!isValidDescendingRun(col, start)) continue;
+      
+      const mover = col[start];
+      let canMove = false;
+      for (let to = 0; to < 10; to++) {
+        if (from === to) continue;
+        const targetCol = decks[to] || [];
+        const targetTop = targetCol.length === 0 ? null : targetCol[targetCol.length - 1];
+        if (isValidMove(mover, targetTop)) {
+          canMove = true;
+          break; // Found at least one target, so this card is a valid source
+        }
+      }
+      if (canMove) {
+        result.push({ deckIndex: from, cardIndex: start });
+      }
+    }
+  }
+  return result;
+};
+
 /** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
 export const findGameHint = (decks: Card[][]): GameHint => {
   for (let c = 0; c < 10; c++) {

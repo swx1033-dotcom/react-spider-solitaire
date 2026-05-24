@@ -1,0 +1,164 @@
+diff --git a/src/styles/index.css b/src/styles/index.css
+index 5f110db..385391e 100644
+--- a/src/styles/index.css
++++ b/src/styles/index.css
+@@ -57,3 +57,10 @@ code {
+   transform: translateY(-2px) !important;
+   box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2) !important;
+ }
++
++/* Highlight Movable Cards */
++.highlight-movable {
++  box-shadow: 0 0 15px 5px rgba(255, 235, 59, 0.8) !important;
++  border-radius: 5px;
++  filter: brightness(1.1);
++}
+diff --git a/src/ui/Card.tsx b/src/ui/Card.tsx
+index e729170..a08aa68 100644
+--- a/src/ui/Card.tsx
++++ b/src/ui/Card.tsx
+@@ -34,6 +34,7 @@ const Card: React.FC<CardProps> = ({
+ 
+   const dragStart = (event: React.DragEvent<HTMLDivElement>): void => {
+     if (!canDrag) return;
++    clearHighlight();
+ 
+     const currentCard = event.currentTarget;
+     const currentCardIndex = parseInt(
+diff --git a/src/ui/CardBoard.tsx b/src/ui/CardBoard.tsx
+index 2cb6cea..e3112c5 100644
+--- a/src/ui/CardBoard.tsx
++++ b/src/ui/CardBoard.tsx
+@@ -1,11 +1,12 @@
+ import React, { useState, useEffect, useRef } from "react";
+-import { initiateGame, findGameHint } from "../utils/game";
++import { initiateGame, findGameHint, getMovableSourceCards } from "../utils/game";
++import { clearHighlight, applyHighlight } from "../utils/highlight";
+ import CardHolder from "./CardHolder";
+ import styles from "../styles/CardBoard.module.css";
+ import Header from "./Header";
+ import CardBoardBottom from "./CardBoardBottom";
+ import { GameState } from "../types/game";
+-import { showInfo, showWonPopup } from "../utils/toaster";
++import { showInfo, showWonPopup, showWarning } from "../utils/toaster";
+ 
+ const cloneGameState = (g: GameState): GameState => ({
+   completed: g.completed,
+@@ -71,9 +72,19 @@ const CardBoard: React.FC = () => {
+     showInfo(findGameHint(game.decks).text);
+   };
+ 
++  const handleHighlightMovable = (): void => {
++    const movableCards = getMovableSourceCards(game.decks);
++    if (movableCards.length === 0) {
++      showWarning("No movable cards currently. Try dealing from the stock.");
++      return;
++    }
++    applyHighlight(movableCards);
++  };
++
+   const updateGameWithHistory = (
+     next: React.SetStateAction<GameState>,
+   ): void => {
++    clearHighlight();
+     setGame((prev) => {
+       const resolved = typeof next === "function" ? next(prev) : next;
+       setGameHistory((h) => [...h, cloneGameState(prev)]);
+@@ -90,6 +101,7 @@ const CardBoard: React.FC = () => {
+         onNewGame={startNewGame}
+         onUndo={handleUndo}
+         onHint={handleHint}
++        onHighlightMovable={handleHighlightMovable}
+         canUndo={canUndo}
+         sessionKey={gameKey}
+       />
+diff --git a/src/ui/Header.tsx b/src/ui/Header.tsx
+index 4315628..dfbdde1 100644
+--- a/src/ui/Header.tsx
++++ b/src/ui/Header.tsx
+@@ -82,6 +82,9 @@ const Header: React.FC<HeaderProps> = ({
+         <button type="button" className={styles.btn} onClick={() => onHint?.()}>
+           💡 Hint
+         </button>
++        <button type="button" className={styles.btn} onClick={() => onHighlightMovable?.()}>
++          ✨ Highlight
++        </button>
+       </div>
+       <div className={styles.centerSection}>
+         <div className={styles.stats}>
+@@ -120,3 +123,5 @@ const Header: React.FC<HeaderProps> = ({
+ };
+ 
+ export default Header;
++export default Header;
++export default Header;
+diff --git a/src/utils/game.ts b/src/utils/game.ts
+index 92423e9..fad096b 100644
+--- a/src/utils/game.ts
++++ b/src/utils/game.ts
+@@ -145,6 +145,42 @@ export type GameHint = {
+   text: string;
+ };
+ 
++export interface CardIdentifier {
++  deckIndex: number;
++  cardIndex: number;
++}
++
++/** 
++ * Scans the board to find all cards that can be the source of a valid move.
++ * Returns an array of card identifiers, deduplicated by the nature of the search.
++ */
++export const getMovableSourceCards = (decks: Card[][]): CardIdentifier[] => {
++  const result: CardIdentifier[] = [];
++  for (let from = 0; from < 10; from++) {
++    const col = decks[from] || [];
++    for (let start = 0; start < col.length; start++) {
++      if (col[start].isDown) continue;
++      if (!isValidDescendingRun(col, start)) continue;
++      
++      const mover = col[start];
++      let canMove = false;
++      for (let to = 0; to < 10; to++) {
++        if (from === to) continue;
++        const targetCol = decks[to] || [];
++        const targetTop = targetCol.length === 0 ? null : targetCol[targetCol.length - 1];
++        if (isValidMove(mover, targetTop)) {
++          canMove = true;
++          break; // Found at least one target, so this card is a valid source
++        }
++      }
++      if (canMove) {
++        result.push({ deckIndex: from, cardIndex: start });
++      }
++    }
++  }
++  return result;
++};
++
+ /** Next suggestion for the player (tableau = first 10 decks, stock = 10..14). */
+ export const findGameHint = (decks: Card[][]): GameHint => {
+   for (let c = 0; c < 10; c++) {
+diff --git a/src/utils/toaster.ts b/src/utils/toaster.ts
+index 2299732..d5c89a3 100644
+--- a/src/utils/toaster.ts
++++ b/src/utils/toaster.ts
+@@ -24,6 +24,18 @@ export const showInfo = (message: string): void => {
+   });
+ };
+ 
++export const showWarning = (message: string): void => {
++  Swal.fire({
++    icon: "warning",
++    text: message,
++    toast: true,
++    position: "top",
++    timer: 3000,
++    showConfirmButton: false,
++    timerProgressBar: true,
++  });
++};
++
+ export const showWonPopup = (restart: () => void): void => {
+   Swal.fire({
+     title: "🎉 Congratulations! 🎉",

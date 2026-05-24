@@ -7,6 +7,7 @@ interface HeaderProps {
   onNewGame: () => void;
   onUndo?: () => void;
   onHint?: () => void;
+  onHighlightMovable?: () => void;
   canUndo?: boolean;
   /** When this changes (e.g. new deal), the timer resets — keeps win → Play Again in sync. */
   sessionKey?: number;

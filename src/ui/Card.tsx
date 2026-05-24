@@ -34,6 +34,7 @@ const Card: React.FC<CardProps> = ({
 
   const dragStart = (event: React.DragEvent<HTMLDivElement>): void => {
     if (!canDrag) return;
+    clearHighlight();
 
     const currentCard = event.currentTarget;
     const currentCardIndex = parseInt(

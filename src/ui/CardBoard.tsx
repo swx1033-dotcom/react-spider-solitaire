@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from "react";
-import { initiateGame, findGameHint } from "../utils/game";
+import { initiateGame, findGameHint, getMovableSourceCards } from "../utils/game";
+import { clearHighlight, applyHighlight } from "../utils/highlight";
 import CardHolder from "./CardHolder";
 import styles from "../styles/CardBoard.module.css";
 import Header from "./Header";
 import CardBoardBottom from "./CardBoardBottom";
 import { GameState } from "../types/game";
-import { showInfo, showWonPopup } from "../utils/toaster";
+import { showInfo, showWonPopup, showWarning } from "../utils/toaster";
 
 const cloneGameState = (g: GameState): GameState => ({
   completed: g.completed,
@@ -71,9 +72,19 @@ const CardBoard: React.FC = () => {
     showInfo(findGameHint(game.decks).text);
   };
 
+  const handleHighlightMovable = (): void => {
+    const movableCards = getMovableSourceCards(game.decks);
+    if (movableCards.length === 0) {
+      showWarning("No movable cards currently. Try dealing from the stock.");
+      return;
+    }
+    applyHighlight(movableCards);
+  };
+
   const updateGameWithHistory = (
     next: React.SetStateAction<GameState>,
   ): void => {
+    clearHighlight();
     setGame((prev) => {
       const resolved = typeof next === "function" ? next(prev) : next;
       setGameHistory((h) => [...h, cloneGameState(prev)]);
@@ -90,6 +101,7 @@ const CardBoard: React.FC = () => {
         onNewGame={startNewGame}
         onUndo={handleUndo}
         onHint={handleHint}
+        onHighlightMovable={handleHighlightMovable}
         canUndo={canUndo}
         sessionKey={gameKey}
       />
